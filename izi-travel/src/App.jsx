@@ -5,9 +5,8 @@ import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken }
 import { getFirestore, collection, addDoc, serverTimestamp, doc, getDoc, setDoc } from 'firebase/firestore';
 
 // =====================================================================
-// KONFIGURASI KUNCI API PERMANEN
+// KONFIGURASI KUNCI GOOGLE DRIVE (AI GEMINI SUDAH DIHAPUS)
 // =====================================================================
-const PERMANEN_GEMINI_API = "AIzaSyBPnhXSFLj20OWRGOV7zEi15xo_-bPho7M"; 
 const PERMANEN_GD_CLIENT_ID = "737676719365-1e9ic5mf5a9vf6c661jrmspbd8tu4rto.apps.googleusercontent.com";
 const PERMANEN_GD_API_KEY = ""; 
 // =====================================================================
@@ -78,7 +77,7 @@ export default function App() {
   const [driveFiles, setDriveFiles] = useState([]);
   const [isDriveLoading, setIsDriveLoading] = useState(false);
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
-  const [driveSelectTarget, setDriveSelectTarget] = useState(null); // 'rekom', 'cuti', or 'passport'
+  const [driveSelectTarget, setDriveSelectTarget] = useState(null); 
 
   // --- Initialize Scripts & Auth ---
   useEffect(() => {
@@ -158,7 +157,6 @@ export default function App() {
     try {
       const tokenClient = window.google.accounts.oauth2.initTokenClient({
         client_id: gdClientId,
-        // Perbaikan Scope: Menggabungkan akses upload file dan akses baca agar tidak diblokir penuh
         scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly', 
         callback: (tokenResponse) => {
           if (tokenResponse.error !== undefined) throw (tokenResponse);
@@ -204,70 +202,84 @@ export default function App() {
     } catch (error) { console.error(error); }
   };
 
-  // --- NETLIFY BACKEND CALL (DENGAN SENSOR LOKAL) ---
-  const extractWithAI = async (file, type = "ktp") => {
-    const toBase64 = (file) =>
-      new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve(reader.result.split(",")[1]);
-        reader.onerror = reject;
-      });
 
-    const base64Image = await toBase64(file);
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname.startsWith('192.168.') || window.location.hostname.startsWith('10.') || window.location.hostname === '127.0.0.1';
-
-    if (!isLocalhost) {
-      try {
-        const res = await fetch("/.netlify/functions/gemini-vision", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ base64Image, mimeType: file.type, type }),
-        });
-
-        const textRes = await res.text();
-        try {
-          const data = JSON.parse(textRes);
-          if (!res.ok) throw new Error(data.error || "Server Netlify Error");
-          return data;
-        } catch (e) {
-          throw new Error("Gagal membaca respon server. Netlify Function mungkin belum terdeploy dengan benar.");
-        }
-      } catch (backendErr) {
-        throw new Error(backendErr.message);
-      }
-    } 
-    else {
-      console.log("Mode Pratinjau Terdeteksi: Menghubungi Gemini secara langsung...");
-      const keyToUse = PERMANEN_GEMINI_API;
-      if (!keyToUse) throw new Error("API Key tidak ditemukan untuk mode lokal.");
-
-      let prompt = `Ekstrak data dari gambar ${type.toUpperCase()} ini. Berikan jawaban MURNI HANYA DALAM FORMAT JSON TANPA TEKS LAIN.`;
-      if (type === "ktp") {
-        prompt += `\nFormat: {"nik": "", "nama": "", "tempatLahir": "", "tglLahir": "", "alamat": ""}`;
-      } else {
-        prompt += `\nFormat: {"surname": "", "givenName": "", "gender": "", "birthDate": "DD/MM/YYYY", "passportNumber": "", "issueDate": "DD/MM/YYYY", "expiryDate": "DD/MM/YYYY", "issuingCountry": "INDONESIA"}`;
-      }
-
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${keyToUse}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: file.type, data: base64Image } }] }],
-          generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
-        })
-      });
-
-      const result = await response.json();
-      if (result.error) throw new Error(`Google API: ${result.error.message}`);
-
-      const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!textResponse) throw new Error("Gagal mengekstrak data dari gambar.");
+  // =====================================================================
+  // SISTEM OCR LOKAL PENGGANTI AI (TESSERACT.JS)
+  // =====================================================================
+  const extractWithOCR = async (file, type = "ktp") => {
+    try {
+      console.log("Memulai proses OCR lokal...");
       
-      const cleanedJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-      return JSON.parse(cleanedJson);
+      // Memanggil Tesseract.js secara dinamis (tanpa perlu install NPM)
+      const TesseractModule = await import('https://esm.sh/tesseract.js@5');
+      const Tesseract = TesseractModule.default || TesseractModule;
+
+      // Jalankan OCR (Ini memakan waktu lebih lama dari AI karena diproses di memori laptop)
+      const result = await Tesseract.recognize(file, 'ind', {
+        logger: m => console.log(`Proses OCR: ${(m.progress * 100).toFixed(0)}%`)
+      });
+
+      const rawText = result.data.text;
+      console.log("Hasil Mentah OCR:\n", rawText);
+      const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+      if (type === "ktp") {
+        let data = { nik: '', nama: '', tempatLahir: '', tglLahir: '', alamat: '' };
+
+        // 1. Tangkap NIK (Cari 16 digit angka berturut-turut)
+        const nikMatch = rawText.match(/\b\d{16}\b/);
+        if (nikMatch) data.nik = nikMatch[0];
+
+        // 2. Tangkap Baris-baris berantakan (Parser Kasar)
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].toUpperCase();
+          
+          // Tebak Nama
+          if (line.includes('NAMA') && !data.nama) {
+            data.nama = lines[i].replace(/.*NAMA[\s=:]*/i, '').replace(/[^a-zA-Z\s.,]/g, '').trim();
+            // Jika kosong, mungkin nama ada di baris bawahnya
+            if (!data.nama && i + 1 < lines.length) {
+              data.nama = lines[i+1].replace(/[^a-zA-Z\s.,]/g, '').trim();
+            }
+          }
+          
+          // Tebak Tempat Tgl Lahir
+          if ((line.includes('TEMPAT') || line.includes('LAHIR')) && !data.tempatLahir) {
+            const ttl = lines[i].replace(/.*LAHIR[\s=:]*/i, '').trim();
+            const parts = ttl.split(',');
+            if (parts.length > 1) {
+              data.tempatLahir = parts[0].replace(/[^a-zA-Z\s]/g, '').trim();
+              data.tglLahir = parts.slice(1).join(',').trim();
+            } else {
+              data.tempatLahir = ttl;
+            }
+          }
+          
+          // Tebak Alamat
+          if (line.includes('ALAMAT') && !data.alamat) {
+            data.alamat = lines[i].replace(/.*ALAMAT[\s=:]*/i, '').trim();
+          }
+        }
+        return data;
+
+      } else {
+        // --- PARSING PASPOR OCR ---
+        let data = { surname: '', givenName: '', gender: 'M', birthDate: '', passportNumber: '', issueDate: '', expiryDate: '', issuingCountry: 'INDONESIA' };
+        
+        // Cari kemungkinan Nomor Paspor (Biasanya 1 huruf + 7 angka)
+        const passMatch = rawText.match(/\b[A-Z0-9]{8,9}\b/);
+        if (passMatch) data.passportNumber = passMatch[0];
+
+        // Parser Paspor berbasis OCR sangat rawan, kita isi string kosong agar user edit manual
+        return data;
+      }
+
+    } catch (error) {
+      console.error(error);
+      throw new Error("Sistem OCR Gagal membaca gambar. Pastikan gambar sangat terang, fokus, dan tidak ada pantulan cahaya (glare).");
     }
   };
+
 
   // --- GENERAL PROCESSING HELPER ---
   const processExtractedData = async (file, mode) => {
@@ -276,12 +288,15 @@ export default function App() {
     if (mode === 'passport') setIsProcessingPassport(true);
 
     try {
-      const extracted = await extractWithAI(file, mode === "passport" ? "passport" : "ktp");
+      // Menggunakan OCR sebagai ganti AI
+      const extracted = await extractWithOCR(file, mode === "passport" ? "passport" : "ktp");
       
       if (mode === 'rekom') {
         setFormDataRekom({ ...extracted }); setViewRekom('form');
+        alert("Selesai diproses OCR. Perhatikan: Silakan cek dan perbaiki tulisan yang salah eja (typo).");
       } else if (mode === 'cuti') {
         setFormDataCuti(prev => ({ ...prev, nama: extracted.nama || '', alamat: extracted.alamat || '', idType: 'NIK', idNumber: extracted.nik || '' })); setViewCuti('form');
+        alert("Selesai diproses OCR. Perhatikan: Silakan cek dan perbaiki tulisan yang salah eja (typo).");
       } else if (mode === 'passport') {
         const newPax = { 
           id: Date.now(), paxType: 'ADT', gender: extracted.gender || 'M', 
@@ -293,6 +308,7 @@ export default function App() {
           meal1: '', meal2: '', seating: '' 
         };
         setManifestData(prev => [...prev, newPax]);
+        alert("Paspor dibaca menggunakan OCR. Pastikan untuk mengedit kolom yang kosong atau salah eja secara manual di tabel.");
       }
     } catch(err) {
       alert(`Pesan Sistem: ${err.message}`);
@@ -306,7 +322,7 @@ export default function App() {
   // --- HANDLER UPLOAD LOKAL ---
   const handleLocalUpload = async (e, mode) => {
     const f = e.target.files[0]; if (!f) return;
-    if (gdToken) uploadToGoogleDrive(f); // Auto backup if connected
+    if (gdToken) uploadToGoogleDrive(f); 
     await processExtractedData(f, mode);
     if (e.target) e.target.value = null;
   };
@@ -331,18 +347,13 @@ export default function App() {
     if (mode === 'passport') setIsProcessingPassport(true);
 
     try {
-      // Download gambar dari Drive menggunakan alt=media
       const response = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFile.id}?alt=media`, {
         headers: { Authorization: `Bearer ${gdToken}` }
       });
-      
       if (!response.ok) throw new Error("Gagal mengunduh gambar dari Google Drive.");
-      
-      // Ubah data unduhan menjadi format File
       const blob = await response.blob();
       const fileToProcess = new File([blob], driveFile.name, { type: driveFile.mimeType });
       
-      // Kirim file ke AI
       await processExtractedData(fileToProcess, mode);
     } catch(err) {
       alert(`Gagal mengambil dari Drive: ${err.message}`);
@@ -454,7 +465,7 @@ export default function App() {
             <button onClick={() => setAppMode('drive')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${appMode === 'drive' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-600 hover:bg-indigo-50'}`}><Cloud className="w-4 h-4"/> Google Drive</button>
           </div>
           <div className="flex gap-3 text-sm items-center whitespace-nowrap">
-            <button onClick={() => setIsDriveSettingsOpen(true)} className="text-indigo-700 hover:text-indigo-800 flex items-center gap-1 font-bold bg-indigo-100 px-4 py-2 rounded-lg border border-indigo-200 shadow-sm"><Key className="w-4 h-4"/> Pengaturan API</button>
+            <button onClick={() => setIsDriveSettingsOpen(true)} className="text-indigo-700 hover:text-indigo-800 flex items-center gap-1 font-bold bg-indigo-100 px-4 py-2 rounded-lg border border-indigo-200 shadow-sm"><Key className="w-4 h-4"/> Drive API</button>
             {appMode === 'persuratan' && <button onClick={() => setIsSettingsOpen(true)} className="text-gray-500 hover:text-blue-600 flex items-center gap-1 font-medium transition-colors"><Settings className="w-4 h-4"/> Kop Surat</button>}
           </div>
         </div>
@@ -502,14 +513,11 @@ export default function App() {
       {isDriveSettingsOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
-            <h2 className="text-xl font-bold mb-2 flex items-center gap-2"><Key className="w-6 h-6 text-indigo-600" /> Pengaturan Kunci API</h2>
+            <h2 className="text-xl font-bold mb-2 flex items-center gap-2"><Key className="w-6 h-6 text-indigo-600" /> Kunci Google Drive</h2>
+            <p className="text-xs text-gray-500 mb-4">Sistem AI telah digantikan oleh Local OCR. Anda hanya perlu mengatur API Drive di sini.</p>
             <div className="space-y-4 mb-6">
-              <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg">
-                <h3 className="text-sm font-bold text-blue-800 mb-2">1. Kunci AI Gemini</h3>
-                <p className="text-sm text-green-700 font-medium flex items-center gap-2"><CheckCircle className="w-5 h-5"/> Tersembunyi di Server (Backend)</p>
-              </div>
               <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                <h3 className="text-sm font-bold text-gray-700 mb-2">2. Kunci Google Drive</h3>
+                <h3 className="text-sm font-bold text-gray-700 mb-2">Google Drive Client ID</h3>
                 {PERMANEN_GD_CLIENT_ID ? <p className="text-sm text-green-700 font-medium flex items-center gap-2"><CheckCircle className="w-5 h-5"/> Aktif & Permanen</p> :
                 <input type="text" value={gdClientId} onChange={(e) => setGdClientId(e.target.value)} placeholder="Client ID" className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg mb-2" />}
               </div>
@@ -570,19 +578,18 @@ export default function App() {
           {suratType === 'rekom' && viewRekom === 'upload' && (
             <div className="max-w-lg mx-auto bg-white rounded-2xl shadow-sm border p-8 text-center">
               <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6"><Camera className="w-10 h-10" /></div>
-              <h2 className="text-2xl font-semibold mb-2">Scan KTP Jamaah</h2>
-              <p className="text-sm text-gray-500 mb-6">Pilih sumber foto KTP di bawah ini.</p>
+              <h2 className="text-2xl font-semibold mb-2">OCR KTP Jamaah</h2>
+              <p className="text-sm text-gray-500 mb-6">Pastikan foto KTP sangat terang dan tidak ada pantulan cahaya (glare).</p>
               
-              {/* TOMBOL SCAN SPLIT LOKAL & DRIVE */}
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full mb-4">
                 <div className="relative group w-full sm:w-1/2">
                   <input type="file" accept="image/*" capture="environment" onChange={(e) => handleLocalUpload(e, 'rekom')} disabled={isProcessingRekom} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
                   <div className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold ${isProcessingRekom ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white shadow-md hover:bg-blue-700'}`}>
-                    {isProcessingRekom ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />} VIA LOKAL
+                    {isProcessingRekom ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />} {isProcessingRekom ? 'MEMBACA OCR...' : 'VIA LOKAL'}
                   </div>
                 </div>
                 <button onClick={() => openDriveModal('rekom')} disabled={isProcessingRekom} className="flex items-center justify-center gap-2 w-full sm:w-1/2 py-3 rounded-xl font-bold bg-white border-2 border-blue-600 text-blue-600 shadow-sm hover:bg-blue-50">
-                  {isProcessingRekom ? <Loader2 className="w-5 h-5 animate-spin" /> : <Cloud className="w-5 h-5" />} VIA DRIVE
+                  {isProcessingRekom ? <Loader2 className="w-5 h-5 animate-spin" /> : <Cloud className="w-5 h-5" />} {isProcessingRekom ? 'MEMBACA OCR...' : 'VIA DRIVE'}
                 </button>
               </div>
 
@@ -642,19 +649,18 @@ export default function App() {
           {suratType === 'cuti' && viewCuti === 'upload' && (
             <div className="max-w-lg mx-auto bg-white rounded-2xl shadow-sm border p-8 text-center print:hidden">
               <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6"><Camera className="w-10 h-10" /></div>
-              <h2 className="text-2xl font-semibold mb-2">Scan KTP Pegawai/Jamaah</h2>
-              <p className="text-sm text-gray-500 mb-6">Pilih sumber foto KTP di bawah ini.</p>
+              <h2 className="text-2xl font-semibold mb-2">OCR KTP Pegawai/Jamaah</h2>
+              <p className="text-sm text-gray-500 mb-6">Pastikan foto KTP sangat terang dan tidak ada pantulan cahaya (glare).</p>
               
-              {/* TOMBOL SCAN SPLIT LOKAL & DRIVE */}
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full mb-4">
                 <div className="relative group w-full sm:w-1/2">
                   <input type="file" accept="image/*" capture="environment" onChange={(e) => handleLocalUpload(e, 'cuti')} disabled={isProcessingCutiKTP} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
                   <div className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold ${isProcessingCutiKTP ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white shadow-md hover:bg-blue-700'}`}>
-                    {isProcessingCutiKTP ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />} VIA LOKAL
+                    {isProcessingCutiKTP ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />} {isProcessingCutiKTP ? 'MEMBACA OCR...' : 'VIA LOKAL'}
                   </div>
                 </div>
                 <button onClick={() => openDriveModal('cuti')} disabled={isProcessingCutiKTP} className="flex items-center justify-center gap-2 w-full sm:w-1/2 py-3 rounded-xl font-bold bg-white border-2 border-blue-600 text-blue-600 shadow-sm hover:bg-blue-50">
-                  {isProcessingCutiKTP ? <Loader2 className="w-5 h-5 animate-spin" /> : <Cloud className="w-5 h-5" />} VIA DRIVE
+                  {isProcessingCutiKTP ? <Loader2 className="w-5 h-5 animate-spin" /> : <Cloud className="w-5 h-5" />} {isProcessingCutiKTP ? 'MEMBACA OCR...' : 'VIA DRIVE'}
                 </button>
               </div>
 
@@ -862,7 +868,7 @@ export default function App() {
                   <p className="text-sm text-gray-500">Pilih sumber foto Paspor di bawah ini.</p>
                 </div>
                 <div className="flex flex-wrap md:flex-nowrap gap-2 w-full md:w-auto">
-                  {/* TOMBOL SCAN SPLIT LOKAL & DRIVE */}
+                  
                   <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
                     <div className="relative flex-1 min-w-[150px]">
                       <input type="file" accept="image/*" onChange={(e) => handleLocalUpload(e, 'passport')} disabled={isProcessingPassport} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
