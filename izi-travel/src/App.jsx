@@ -185,6 +185,21 @@ export default function App() {
     } catch (e) {}
   };
 
+  // --- PENYIMPANAN PENGATURAN KOP ---
+  const saveHeaderSettings = async () => {
+    setIsSavingSettings(true);
+    try { 
+        if (firebaseConfig.apiKey !== "DUMMY") {
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'header'), headerSettings, { merge: true }); 
+        } else {
+            localStorage.setItem('izi_header_settings', JSON.stringify(headerSettings));
+        }
+        setIsSettingsOpen(false); 
+        alert("Pengaturan Kop Surat berhasil disimpan!");
+    } 
+    catch (error) { alert("Gagal menyimpan pengaturan."); } finally { setIsSavingSettings(false); }
+  };
+
   // --- SCAN AI LOGIC (DENGAN SISTEM AUTO-FALLBACK ANTI-GAGAL) ---
   const extractDataFromGemini = async (base64Data, mimeType, isPassport = false) => {
     const type = isPassport ? "passport" : "ktp";
@@ -221,7 +236,8 @@ export default function App() {
       prompt = `Ekstrak data Paspor dari gambar ini. Kembalikan HASILNYA HANYA DALAM FORMAT JSON SEPERTI INI: {"surname": "nama belakang", "givenName": "nama depan", "gender": "M atau F", "birthDate": "DD/MM/YYYY", "passportNumber": "nomor paspor", "issueDate": "DD/MM/YYYY", "expiryDate": "DD/MM/YYYY", "issuingCountry": "INDONESIA"}. Jangan ada teks lain selain JSON.`;
     }
     
-    const modelsToTry = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-2.0-flash-exp'];
+    // PERBAIKAN: Menggunakan model stabil saja (gemini-1.5-flash) yang dipastikan tidak akan error
+    const modelsToTry = ['gemini-1.5-flash'];
     let lastError = "";
 
     for (const modelName of modelsToTry) {
@@ -391,7 +407,12 @@ export default function App() {
               </div>
             )}
             <div className="flex justify-end gap-2">
-              <button onClick={() => setIsSettingsOpen(false)} className="px-4 py-2 text-gray-600 rounded-lg text-sm">Tutup</button>
+              <button onClick={() => setIsSettingsOpen(false)} className="px-4 py-2 text-gray-600 rounded-lg text-sm">Batal</button>
+              {/* TOMBOL SIMPAN YANG HILANG SUDAH DIKEMBALIKAN */}
+              <button onClick={saveHeaderSettings} disabled={isSavingSettings} className="bg-blue-600 text-white px-5 py-2 rounded-xl font-medium hover:bg-blue-700 text-sm flex items-center">
+                {isSavingSettings ? <Loader2 className="w-4 h-4 animate-spin inline mr-1" /> : null}
+                {isSavingSettings ? 'Menyimpan...' : 'Simpan Form'}
+              </button>
             </div>
           </div>
         </div>
