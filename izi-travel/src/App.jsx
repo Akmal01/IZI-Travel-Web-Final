@@ -401,9 +401,10 @@ export default function App() {
       {appMode === 'persuratan' && (
         <main className="max-w-4xl mx-auto p-4 sm:p-6 pb-20 print:p-0">
           <div className="flex justify-center mb-6 print:hidden">
-            <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200">
+            <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 overflow-x-auto">
               <button onClick={() => setSuratType('rekom')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${suratType === 'rekom' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Rekom Paspor</button>
               <button onClick={() => setSuratType('cuti')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${suratType === 'cuti' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Izin Cuti</button>
+              <button onClick={() => setSuratType('sekolah')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${suratType === 'sekolah' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Izin Sekolah</button>
             </div>
           </div>
 
@@ -464,6 +465,160 @@ export default function App() {
                         {headerSettings.showSignature && headerSettings.signature && <img src={headerSettings.signature} alt="Sig" className="h-28 object-contain absolute z-10" style={{ mixBlendMode: 'multiply' }} />}
                       </div>
                       <p><b>MUH. NASYWAN AKMAL</b><br/>DIREKTUR IZI TRAVEL</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* RENDER IZIN CUTI */}
+          {suratType === 'cuti' && viewCuti === 'upload' && (
+            <div className="max-w-lg mx-auto bg-white rounded-2xl shadow-sm border p-8 text-center print:hidden">
+              <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6"><Camera className="w-10 h-10" /></div>
+              <h2 className="text-2xl font-semibold mb-2">Scan KTP Pegawai/Jamaah</h2>
+              <p className="text-sm text-gray-500 mb-6">Pilih sumber foto KTP di bawah ini.</p>
+              
+              <div className="relative group mb-4">
+                <input type="file" accept="image/*" capture="environment" onChange={(e) => handleLocalUpload(e, 'cuti')} disabled={isProcessingCutiKTP} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                <div className={`flex items-center justify-center gap-2 w-full py-4 rounded-xl font-bold ${isProcessingCutiKTP ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white shadow-lg'}`}>
+                  {isProcessingCutiKTP ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />} {isProcessingCutiKTP ? 'SEDANG MEMPROSES...' : 'PILIH FOTO KTP'}
+                </div>
+              </div>
+
+              <button onClick={() => setViewCuti('form')} className="text-sm text-blue-600 underline">Lewati & isi manual</button>
+            </div>
+          )}
+
+          {suratType === 'cuti' && viewCuti === 'form' && (
+            <div className="bg-white rounded-2xl shadow-sm border p-6 print:hidden">
+              <h2 className="text-xl font-semibold mb-6 flex items-center gap-2"><Briefcase className="w-6 h-6 text-blue-500" /> Isi Data Surat Izin Cuti</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-gray-500 uppercase border-b pb-2">Info Surat & Tujuan</h3>
+                  <div><label className="block text-sm text-gray-700 mb-1">Kepada Yth</label><textarea value={formDataCuti.kepadaYth} onChange={(e) => setFormDataCuti(p => ({...p, kepadaYth: e.target.value}))} rows="2" className="w-full px-4 py-2 border rounded-lg"></textarea></div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="block text-sm text-gray-700 mb-1">Tgl Berangkat</label><input type="text" value={formDataCuti.tglBerangkat} onChange={(e) => setFormDataCuti(p => ({...p, tglBerangkat: e.target.value}))} className="w-full px-4 py-2 border rounded-lg" /></div>
+                    <div><label className="block text-sm text-gray-700 mb-1">Tgl Pulang</label><input type="text" value={formDataCuti.tglPulang} onChange={(e) => setFormDataCuti(p => ({...p, tglPulang: e.target.value}))} className="w-full px-4 py-2 border rounded-lg" /></div>
+                  </div>
+                  <div><label className="block text-sm text-gray-700 mb-1">Tahun (Hijriah / Masehi)</label><input type="text" value={formDataCuti.tahunHM} onChange={(e) => setFormDataCuti(p => ({...p, tahunHM: e.target.value}))} className="w-full px-4 py-2 border rounded-lg" /></div>
+                </div>
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-gray-500 uppercase border-b pb-2">Identitas Pegawai Jamaah</h3>
+                  <div><label className="block text-sm text-gray-700 mb-1">Nama Jamaah</label><input type="text" value={formDataCuti.nama} onChange={(e) => setFormDataCuti(p => ({...p, nama: e.target.value}))} className="w-full px-4 py-2 border rounded-lg" /></div>
+                  <div>
+                    <select value={formDataCuti.idType} onChange={(e) => setFormDataCuti(p => ({...p, idType: e.target.value}))} className="text-sm text-gray-700 border-none bg-gray-100 rounded py-1 px-2 font-semibold mb-1"><option>NIP</option><option>NIK</option></select>
+                    <input type="text" value={formDataCuti.idNumber} onChange={(e) => setFormDataCuti(p => ({...p, idNumber: e.target.value}))} className="w-full px-4 py-2 border rounded-lg" />
+                  </div>
+                  <div><label className="block text-sm text-gray-700 mb-1">Instansi</label><input type="text" value={formDataCuti.instansi} onChange={(e) => setFormDataCuti(p => ({...p, instansi: e.target.value}))} className="w-full px-4 py-2 border rounded-lg" /></div>
+                  <div><label className="block text-sm text-gray-700 mb-1">Golongan/Pangkat</label><input type="text" value={formDataCuti.golongan} onChange={(e) => setFormDataCuti(p => ({...p, golongan: e.target.value}))} placeholder="Opsional" className="w-full px-4 py-2 border rounded-lg" /></div>
+                  <div><label className="block text-sm text-gray-700 mb-1">Jabatan</label><input type="text" value={formDataCuti.jabatan} onChange={(e) => setFormDataCuti(p => ({...p, jabatan: e.target.value}))} className="w-full px-4 py-2 border rounded-lg" /></div>
+                  <div><label className="block text-sm text-gray-700 mb-1">Alamat</label><textarea value={formDataCuti.alamat} onChange={(e) => setFormDataCuti(p => ({...p, alamat: e.target.value}))} rows="2" className="w-full px-4 py-2 border rounded-lg"></textarea></div>
+                </div>
+              </div>
+              <button onClick={() => setViewCuti('preview')} className="mt-8 w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-md hover:bg-blue-700">LIHAT PRATINJAU SURAT CUTI</button>
+            </div>
+          )}
+
+          {suratType === 'cuti' && viewCuti === 'preview' && (
+             <div>
+              <div className="mb-6 flex justify-between bg-white p-4 rounded-xl shadow-sm border print:hidden">
+                <button onClick={()=>setViewCuti('form')} className="text-gray-500 hover:text-gray-800">← Kembali Edit</button>
+                <button onClick={() => window.print()} className="bg-gray-900 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-lg"><Printer className="w-4 h-4" /> CETAK PDF</button>
+              </div>
+              <div className="bg-white mx-auto shadow-lg p-[20mm] w-full max-w-[210mm] min-h-[297mm] print:shadow-none print:p-0">
+                <KopSurat />
+                <div className="text-[11pt]" style={{ fontFamily: 'Times New Roman, serif', lineHeight: '1.5' }}>
+                  <table className="mb-6"><tbody>
+                    <tr><td className="w-24 pb-1">Nomor</td><td className="w-4 pb-1">:</td><td className="pb-1">{letterNumberCuti}</td></tr>
+                    <tr><td className="pb-1">Lampiran</td><td className="pb-1">:</td><td className="pb-1">-</td></tr>
+                    <tr><td className="pb-1 align-top">Perihal</td><td className="pb-1 align-top">:</td><td className="pb-1 font-bold">SURAT PERMOHONAN IZIN CUTI</td></tr>
+                  </tbody></table>
+                  <div className="mb-6"><p>Kepada Yth,</p>{formDataCuti.kepadaYth.split('\n').map((line, i) => <p key={i} className="font-bold">{line}</p>)}<p>Di -</p><p className="ml-4">Tempat</p></div>
+                  <p className="mb-4 text-justify">Dengan ini kami sampaikan permohonan izin cuti bagi jamaah umrah kami yang akan berangkat pada tanggal {formDataCuti.tglBerangkat} – {formDataCuti.tglPulang} Tahun {formDataCuti.tahunHM}, atas nama jamaah di bawah ini:</p>
+                  <table className="mb-6 ml-4"><tbody>
+                    <tr><td className="w-40 pb-2">Nama</td><td className="w-4 pb-2">:</td><td className="pb-2 font-bold uppercase">{formDataCuti.nama}</td></tr>
+                    <tr><td className="pb-2 align-top">Alamat</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataCuti.alamat}</td></tr>
+                    <tr><td className="pb-2">{formDataCuti.idType}</td><td className="pb-2">:</td><td className="pb-2">{formDataCuti.idNumber}</td></tr>
+                    <tr><td className="pb-2 align-top">Instansi</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataCuti.instansi}</td></tr>
+                    <tr><td className="pb-2 align-top">Golongan/Pangkat</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataCuti.golongan || "-"}</td></tr>
+                    <tr><td className="pb-2 align-top">Jabatan</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataCuti.jabatan}</td></tr>
+                  </tbody></table>
+                  <p className="mb-12 text-justify">Demikian surat permohonan ini kami buat untuk dipergunakan sebagaimana mestinya, atas perhatian dan kerjasama yang baik kami ucapkan terima kasih.</p>
+                  <div className="flex justify-end text-center">
+                    <div className="w-64">
+                      <p>Makassar, {getCurrentDateFormatted()}<br/>Hormat Kami,</p>
+                      <div className="h-24 flex items-center justify-center my-1 relative">{headerSettings.showSignature && headerSettings.signature && <img src={headerSettings.signature} alt="Sig" className="h-28 object-contain absolute z-10" style={{ mixBlendMode: 'multiply' }} />}</div>
+                      <p className="font-bold underline decoration-1 underline-offset-4 mb-1 relative z-20">MUH. NASYWAN AKMAL</p>
+                      <p className="font-bold relative z-20">DIREKTUR IZI TRAVEL</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* RENDER IZIN SEKOLAH */}
+          {suratType === 'sekolah' && viewSekolah === 'form' && (
+            <div className="bg-white rounded-2xl shadow-sm border p-6 print:hidden">
+              <h2 className="text-xl font-semibold mb-6 flex items-center gap-2"><GraduationCap className="w-6 h-6 text-blue-500" /> Isi Data Surat Izin Sekolah/Kampus</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-gray-500 uppercase border-b pb-2">Info Surat & Tujuan</h3>
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">Tingkat Pendidikan</label>
+                    <select value={formDataSekolah.tingkat} onChange={(e) => setFormDataSekolah(p => ({...p, tingkat: e.target.value}))} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"><option value="Kampus">Perguruan Tinggi (Kampus)</option><option value="Sekolah">Sekolah Dasar/Menengah/Kejuruan</option></select>
+                  </div>
+                  <div><label className="block text-sm text-gray-700 mb-1">Kepada Yth</label><textarea value={formDataSekolah.kepadaYth} onChange={(e) => setFormDataSekolah(p => ({...p, kepadaYth: e.target.value}))} rows="2" className="w-full px-4 py-2 border rounded-lg"></textarea></div>
+                  <div><label className="block text-sm text-gray-700 mb-1">Tgl Berangkat</label><input type="text" value={formDataSekolah.tglBerangkat} onChange={(e) => setFormDataSekolah(p => ({...p, tglBerangkat: e.target.value}))} className="w-full px-4 py-2 border rounded-lg" /></div>
+                  <div><label className="block text-sm text-gray-700 mb-1">Tgl Pulang</label><input type="text" value={formDataSekolah.tglPulang} onChange={(e) => setFormDataSekolah(p => ({...p, tglPulang: e.target.value}))} className="w-full px-4 py-2 border rounded-lg" /></div>
+                </div>
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-gray-500 uppercase border-b pb-2">Identitas {formDataSekolah.tingkat === 'Kampus' ? 'Mahasiswa' : 'Siswa'}</h3>
+                  <div><label className="block text-sm text-gray-700 mb-1">Nama Jamaah</label><input type="text" value={formDataSekolah.nama} onChange={(e) => setFormDataSekolah(p => ({...p, nama: e.target.value}))} className="w-full px-4 py-2 border rounded-lg" /></div>
+                  <div>
+                    <select value={formDataSekolah.idType} onChange={(e) => setFormDataSekolah(p => ({...p, idType: e.target.value}))} className="text-sm text-gray-700 border-none bg-gray-100 rounded py-1 px-2 font-semibold mb-1"><option>NIM</option><option>NIS</option><option>NISN</option></select>
+                    <input type="text" value={formDataSekolah.idNumber} onChange={(e) => setFormDataSekolah(p => ({...p, idNumber: e.target.value}))} className="w-full px-4 py-2 border rounded-lg" />
+                  </div>
+                  <div><label className="block text-sm text-gray-700 mb-1">{formDataSekolah.tingkat === 'Kampus' ? 'Jurusan / Prodi' : 'Kelas'}</label><input type="text" value={formDataSekolah.jurusan} onChange={(e) => setFormDataSekolah(p => ({...p, jurusan: e.target.value}))} className="w-full px-4 py-2 border rounded-lg" /></div>
+                </div>
+              </div>
+              <button onClick={() => setViewSekolah('preview')} className="mt-8 w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-md hover:bg-blue-700">LIHAT PRATINJAU SURAT IZIN</button>
+            </div>
+          )}
+
+          {suratType === 'sekolah' && viewSekolah === 'preview' && (
+             <div>
+              <div className="mb-6 flex justify-between bg-white p-4 rounded-xl shadow-sm border print:hidden">
+                <button onClick={()=>setViewSekolah('form')} className="text-gray-500 hover:text-gray-800">← Kembali Edit</button>
+                <button onClick={() => window.print()} className="bg-gray-900 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-lg"><Printer className="w-4 h-4" /> CETAK PDF</button>
+              </div>
+              <div className="bg-white mx-auto shadow-lg p-[20mm] w-full max-w-[210mm] min-h-[297mm] print:shadow-none print:p-0">
+                <KopSurat />
+                <div className="text-[11pt]" style={{ fontFamily: 'Times New Roman, serif', lineHeight: '1.5' }}>
+                  <table className="mb-6"><tbody>
+                    <tr><td className="w-24 pb-1">Nomor</td><td className="w-4 pb-1">:</td><td className="pb-1">{letterNumberSekolah}</td></tr>
+                    <tr><td className="pb-1">Lampiran</td><td className="pb-1">:</td><td className="pb-1">-</td></tr>
+                    <tr><td className="pb-1 align-top">Perihal</td><td className="pb-1 align-top">:</td><td className="pb-1 font-bold">SURAT IZIN MELAKSANAKAN UMRAH</td></tr>
+                  </tbody></table>
+                  <div className="mb-6">
+                    <p>Kepada Yth,</p>{formDataSekolah.kepadaYth.split('\n').map((line, i) => <p key={i} className="font-bold">{line}</p>)}<p>Di-</p><p className="ml-4">Tempat</p>
+                  </div>
+                  <p className="mb-4 text-justify">
+                    Dengan ini memohon izin kepada pihak {formDataSekolah.tingkat === 'Kampus' ? 'perguruan tinggi' : 'sekolah'} untuk memberikan izin tidak mengikuti {formDataSekolah.tingkat === 'Kampus' ? 'perkuliahan' : 'kegiatan belajar mengajar'} kepada jamaah umrah kami yang akan melakukan ibadah umrah pada tanggal {formDataSekolah.tglBerangkat} - {formDataSekolah.tglPulang}, atas nama jamaah di bawah ini:
+                  </p>
+                  <table className="mb-6 ml-4"><tbody>
+                    <tr><td className="w-40 pb-2">Nama</td><td className="w-4 pb-2">:</td><td className="pb-2 font-bold uppercase">{formDataSekolah.nama}</td></tr>
+                    <tr><td className="pb-2">{formDataSekolah.idType}</td><td className="pb-2">:</td><td className="pb-2">{formDataSekolah.idNumber}</td></tr>
+                    <tr><td className="pb-2 align-top">{formDataSekolah.tingkat === 'Kampus' ? 'Jurusan' : 'Kelas'}</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataSekolah.jurusan}</td></tr>
+                  </tbody></table>
+                  <p className="mb-12 text-justify">Demikian surat permohonan ini kami buat untuk dipergunakan sebagaimana mestinya, atas perhatian dan kerjasama yang baik kami ucapkan terima kasih.</p>
+                  <div className="flex justify-end text-center">
+                    <div className="w-64">
+                      <p>Makassar, {getCurrentDateFormatted()}<br/>Hormat Kami,</p>
+                      <div className="h-24 flex items-center justify-center my-1 relative">{headerSettings.showSignature && headerSettings.signature && <img src={headerSettings.signature} alt="Sig" className="h-28 object-contain absolute z-10" style={{ mixBlendMode: 'multiply' }} />}</div>
+                      <p className="font-bold underline decoration-1 underline-offset-4 mb-1 relative z-20">MUH. NASYWAN AKMAL</p>
+                      <p className="font-bold relative z-20">DIREKTUR IZI TRAVEL</p>
                     </div>
                   </div>
                 </div>
