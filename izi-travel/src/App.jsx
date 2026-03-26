@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, Upload, FileText, CheckCircle, Printer, Loader2, Save, Edit3, Settings, FileSpreadsheet, Users, Download, Trash2, Briefcase, GraduationCap, Cloud, Folder as FolderIcon, Image as ImageIcon, File as FileIcon, X, ClipboardList, ArrowLeft, Key } from 'lucide-react';
+import { Camera, Upload, FileText, CheckCircle, Printer, Loader2, Settings, FileSpreadsheet, Users, Download, Trash2, Briefcase, GraduationCap, Cloud, Folder as FolderIcon, Image as ImageIcon, File as FileIcon, X, ClipboardList, ArrowLeft, Key, Archive, ChevronRight, Edit } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, collection, addDoc, serverTimestamp, doc, getDoc, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, serverTimestamp, doc, getDoc, setDoc, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
 
 // =====================================================================
-// KUNCI API PERMANEN (LANGSUNG TEMBAK FRONTEND SEPERTI VERSI PRATINJAU AWAL)
+// KUNCI API PERMANEN
 // =====================================================================
 const PERMANEN_GEMINI_API = "AIzaSyBPnhXSFLj20OWRGOV7zEi15xo_-bPho7M"; 
 const PERMANEN_GD_CLIENT_ID = "737676719365-1e9ic5mf5a9vf6c661jrmspbd8tu4rto.apps.googleusercontent.com";
@@ -25,8 +25,8 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 export default function App() {
   const [user, setUser] = useState(null);
   
-  // --- STATE PENGATURAN ---
-  const [appMode, setAppMode] = useState('persuratan'); 
+  // --- STATE PENGATURAN UMUM ---
+  const [appMode, setAppMode] = useState('persuratan'); // persuratan | manifest | riwayat | drive
   const [suratType, setSuratType] = useState('rekom'); 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isApiSettingsOpen, setIsApiSettingsOpen] = useState(false);
@@ -39,6 +39,9 @@ export default function App() {
   const [gdClientId, setGdClientId] = useState(PERMANEN_GD_CLIENT_ID || localStorage.getItem('izi_gd_client_id') || '');
   const [gdToken, setGdToken] = useState(null);
   const [googleScriptsLoaded, setGoogleScriptsLoaded] = useState(false);
+
+  // --- STATE EDITING (RIWAYAT) ---
+  const [editingId, setEditingId] = useState(null);
 
   // --- STATE SURAT ---
   const [viewRekom, setViewRekom] = useState('upload');
@@ -73,32 +76,28 @@ export default function App() {
   const [isProcessingPassport, setIsProcessingPassport] = useState(false);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
 
-  // --- STATE GOOGLE DRIVE PICKER ---
+  // --- STATE RIWAYAT ---
+  const [historyType, setHistoryType] = useState('rekom');
+  const [historyData, setHistoryData] = useState([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+
+  // --- STATE GOOGLE DRIVE (DENGAN SISTEM FOLDER) ---
   const [driveFiles, setDriveFiles] = useState([]);
   const [isDriveLoading, setIsDriveLoading] = useState(false);
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
   const [driveSelectTarget, setDriveSelectTarget] = useState(null); 
+  const [currentDriveFolder, setCurrentDriveFolder] = useState('root');
+  const [driveBreadcrumbs, setDriveBreadcrumbs] = useState([{ id: 'root', name: 'Drive Saya' }]);
+  const [isSavingToDrive, setIsSavingToDrive] = useState(false);
 
   // --- Initialize Scripts & Auth ---
   useEffect(() => {
-    const loadScript = (src) => {
-      return new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = src;
-        script.async = true;
-        script.onload = resolve;
-        document.body.appendChild(script);
-      });
-    };
-    Promise.all([
-      loadScript('https://apis.google.com/js/api.js'),
-      loadScript('https://accounts.google.com/gsi/client')
-    ]).then(() => setGoogleScriptsLoaded(true));
-
+    const loadScript = (src) => new Promise(resolve => { const s = document.createElement('script'); s.src = src; s.async = true; s.onload = resolve; document.body.appendChild(s); });
+    Promise.all([loadScript('https://apis.google.com/js/api.js'), loadScript('https://accounts.google.com/gsi/client')]).then(() => setGoogleScriptsLoaded(true));
     const initAuth = async () => {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { await signInWithCustomToken(auth, __initial_auth_token); } 
-        else { await signInAnonymously(auth); }
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); 
+        else await signInAnonymously(auth);
       } catch (error) { console.warn("Mode offline aktif"); }
     };
     initAuth();
@@ -110,27 +109,16 @@ export default function App() {
     const fetchCounters = async () => {
       try {
         if (firebaseConfig.apiKey !== "DUMMY") {
-          const headerRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'header');
-          const headerSnap = await getDoc(headerRef);
-          if (headerSnap.exists()) setHeaderSettings(headerSnap.data());
-          const counterRekomRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'counter');
-          const counterRekomSnap = await getDoc(counterRekomRef);
-          if (counterRekomSnap.exists()) setSequenceNumberRekom(counterRekomSnap.data().current);
-          const counterCutiRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'counter_cuti');
-          const counterCutiSnap = await getDoc(counterCutiRef);
-          if (counterCutiSnap.exists()) setSequenceNumberCuti(counterCutiSnap.data().current);
-          const counterSekolahRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'counter_sekolah');
-          const counterSekolahSnap = await getDoc(counterSekolahRef);
-          if (counterSekolahSnap.exists()) setSequenceNumberSekolah(counterSekolahSnap.data().current);
-        } else {
-          const localHeader = localStorage.getItem('izi_header_settings');
-          if (localHeader) setHeaderSettings(JSON.parse(localHeader));
-          const localRekom = localStorage.getItem('izi_counter_rekom');
-          if (localRekom) setSequenceNumberRekom(parseInt(localRekom));
-          const localCuti = localStorage.getItem('izi_counter_cuti');
-          if (localCuti) setSequenceNumberCuti(parseInt(localCuti));
-          const localSekolah = localStorage.getItem('izi_counter_sekolah');
-          if (localSekolah) setSequenceNumberSekolah(parseInt(localSekolah));
+          const [hSnap, rSnap, cSnap, sSnap] = await Promise.all([
+            getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'header')),
+            getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'counter')),
+            getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'counter_cuti')),
+            getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'counter_sekolah'))
+          ]);
+          if (hSnap.exists()) setHeaderSettings(hSnap.data());
+          if (rSnap.exists()) setSequenceNumberRekom(rSnap.data().current);
+          if (cSnap.exists()) setSequenceNumberCuti(cSnap.data().current);
+          if (sSnap.exists()) setSequenceNumberSekolah(sSnap.data().current);
         }
       } catch (e) {}
     };
@@ -138,19 +126,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const today = new Date();
-    const month = today.getMonth() + 1;
-    const year = today.getFullYear();
     const romanMonths = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
-    const romanMonth = romanMonths[month - 1];
-    setLetterNumberRekom(`10.${sequenceNumberRekom}/IZI-TRVL/${romanMonth}/${year}`);
-    setLetterNumberCuti(`03.${sequenceNumberCuti.toString().padStart(3, '0')}/IZI-TRVL/${romanMonth}/${year}`);
-    setLetterNumberSekolah(`03.${sequenceNumberSekolah.toString().padStart(3, '0')}/IZI-TRVL/${romanMonth}/${year}`);
+    const rm = romanMonths[new Date().getMonth()]; const yr = new Date().getFullYear();
+    setLetterNumberRekom(`10.${sequenceNumberRekom}/IZI-TRVL/${rm}/${yr}`);
+    setLetterNumberCuti(`03.${sequenceNumberCuti.toString().padStart(3, '0')}/IZI-TRVL/${rm}/${yr}`);
+    setLetterNumberSekolah(`03.${sequenceNumberSekolah.toString().padStart(3, '0')}/IZI-TRVL/${rm}/${yr}`);
   }, [sequenceNumberRekom, sequenceNumberCuti, sequenceNumberSekolah]);
 
   const getCurrentDateFormatted = () => new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
-  // --- GOOGLE DRIVE LOGIC ---
+  // --- GOOGLE DRIVE LOGIC (SEKARANG MENDUKUNG FOLDER) ---
   const handleGoogleLogin = () => {
     if (!googleScriptsLoaded) return alert("Sistem belum siap.");
     if (!gdClientId) { setIsApiSettingsOpen(true); return; }
@@ -158,138 +143,157 @@ export default function App() {
       const tokenClient = window.google.accounts.oauth2.initTokenClient({
         client_id: gdClientId,
         scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly', 
-        callback: (tokenResponse) => {
-          if (tokenResponse.error !== undefined) throw (tokenResponse);
-          setGdToken(tokenResponse.access_token);
-          fetchDriveFiles(tokenResponse.access_token);
-        },
+        callback: (res) => { if (res.error) throw res; setGdToken(res.access_token); fetchDriveFiles(res.access_token, 'root'); }
       });
       tokenClient.requestAccessToken({prompt: 'consent'});
-    } catch (error) { alert("Gagal login Google."); }
+    } catch (e) { alert("Gagal login Google."); }
   };
 
-  const handleSaveApiKeys = () => {
-    localStorage.setItem('izi_gemini_api_key', geminiApiKey);
-    localStorage.setItem('izi_gd_client_id', gdClientId);
-    setIsApiSettingsOpen(false);
-    alert("Konfigurasi API berhasil disimpan!");
-  };
-
-  const fetchDriveFiles = async (token = gdToken) => {
+  const fetchDriveFiles = async (token = gdToken, folderId = currentDriveFolder) => {
     if (!token) return;
     setIsDriveLoading(true);
     try {
-      const res = await fetch('https://www.googleapis.com/drive/v3/files?q=trashed=false&fields=files(id,name,mimeType,thumbnailLink,webContentLink)&orderBy=createdTime desc', {
+      // Query untuk memuat isi folder tertentu yang tidak di-trash
+      const query = `'${folderId}' in parents and trashed=false`;
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,thumbnailLink,webContentLink,iconLink)&orderBy=folder,name`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
-      if (data.files) setDriveFiles(data.files);
-    } catch (error) { alert("Gagal muat Drive."); } finally { setIsDriveLoading(false); }
+      setDriveFiles(data.files || []);
+    } catch (e) { alert("Gagal muat Drive."); } finally { setIsDriveLoading(false); }
   };
 
-  const uploadToGoogleDrive = async (file) => {
+  const handleFolderClick = (folder) => {
+    const newPath = [...driveBreadcrumbs, { id: folder.id, name: folder.name }];
+    setDriveBreadcrumbs(newPath);
+    setCurrentDriveFolder(folder.id);
+    fetchDriveFiles(gdToken, folder.id);
+  };
+
+  const navigateBreadcrumb = (index) => {
+    const newPath = driveBreadcrumbs.slice(0, index + 1);
+    setDriveBreadcrumbs(newPath);
+    const targetFolderId = newPath[newPath.length - 1].id;
+    setCurrentDriveFolder(targetFolderId);
+    fetchDriveFiles(gdToken, targetFolderId);
+  };
+
+  const uploadToGoogleDrive = async (file, folderId = currentDriveFolder) => {
     if (!gdToken) return;
-    const metadata = { name: file.name, mimeType: file.type };
+    const metadata = { name: file.name, mimeType: file.type, parents: [folderId !== 'root' ? folderId : undefined].filter(Boolean) };
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
     form.append('file', file);
     try {
-      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${gdToken}` },
-        body: form,
-      });
+      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', { method: 'POST', headers: { Authorization: `Bearer ${gdToken}` }, body: form });
       fetchDriveFiles();
     } catch (error) { console.error(error); }
   };
 
+  const savePdfToDrive = async (filename, elementId) => {
+    if (!gdToken) return alert("Mohon Hubungkan Google Drive terlebih dahulu di menu atas.");
+    setIsSavingToDrive(true);
+    try {
+      const el = document.getElementById(elementId);
+      const html2pdf = (await import('https://esm.sh/html2pdf.js')).default;
+      const opt = { margin: 0, filename: `${filename}.pdf`, image: { type: 'jpeg', quality: 1 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
+      
+      const pdfBlob = await html2pdf().set(opt).from(el).outputPdf('blob');
+      const file = new File([pdfBlob], `${filename}.pdf`, { type: 'application/pdf' });
+      await uploadToGoogleDrive(file);
+      alert("File PDF berhasil disimpan otomatis ke Google Drive saat ini!");
+    } catch (e) {
+      alert("Gagal memproses PDF.");
+    } finally {
+      setIsSavingToDrive(false);
+    }
+  };
 
-  // =====================================================================
-  // SISTEM AI GEMINI (DIRECT FRONTEND - 100% BEKERJA SEPERTI PRATINJAU)
-  // =====================================================================
+  // --- RIWAYAT (HISTORY) LOGIC ---
+  const fetchHistory = async () => {
+    setIsHistoryLoading(true);
+    try {
+      if (firebaseConfig.apiKey !== "DUMMY") {
+        let colName = historyType === 'rekom' ? 'jamaah_rekom_paspor' : historyType === 'cuti' ? 'jamaah_izin_cuti' : 'jamaah_izin_sekolah';
+        const snapshot = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', colName));
+        let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Urutkan dari yang terbaru
+        data.sort((a,b) => (b.tanggalDibuat?.toMillis() || 0) - (a.tanggalDibuat?.toMillis() || 0));
+        setHistoryData(data);
+      }
+    } catch(e) { console.error(e); } finally { setIsHistoryLoading(false); }
+  };
+
+  useEffect(() => { if (appMode === 'riwayat') fetchHistory(); }, [appMode, historyType]);
+
+  const handleEditHistory = (item) => {
+    setEditingId(item.id);
+    if (historyType === 'rekom') {
+      setFormDataRekom(item); setLetterNumberRekom(item.nomorSurat); setSuratType('rekom'); setViewRekom('form');
+    } else if (historyType === 'cuti') {
+      setFormDataCuti(item); setLetterNumberCuti(item.nomorSurat); setSuratType('cuti'); setViewCuti('form');
+    } else if (historyType === 'sekolah') {
+      setFormDataSekolah(item); setLetterNumberSekolah(item.nomorSurat); setSuratType('sekolah'); setViewSekolah('form');
+    }
+    setAppMode('persuratan');
+  };
+
+  const handleDeleteHistory = async (id) => {
+    if(!window.confirm('Yakin ingin menghapus arsip surat ini?')) return;
+    try {
+      let col = historyType === 'rekom' ? 'jamaah_rekom_paspor' : historyType === 'cuti' ? 'jamaah_izin_cuti' : 'jamaah_izin_sekolah';
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', col, id));
+      fetchHistory();
+    } catch(e) { alert("Gagal menghapus data."); }
+  };
+
+  const resetForm = () => {
+    setEditingId(null);
+    setFormDataRekom({ nama: '', tempatLahir: '', tglLahir: '', nik: '', alamat: '' });
+    setFormDataCuti({ kepadaYth: 'Sekertaris Daerah\nKabupaten Maros', tglBerangkat: '5 Maret', tglPulang: '24 Maret', tahunHM: '1447 H/2026 M', nama: '', alamat: '', idType: 'NIP', idNumber: '', instansi: '', golongan: '', jabatan: '' });
+    setFormDataSekolah({ tingkat: 'Kampus', kepadaYth: 'Ketua Program Studi Kewirausahaan\nKalla Institute', tglBerangkat: '27 Desember Tahun 1447 H/2025 M', tglPulang: '7 Januari Tahun 1447 H/2026 M', nama: '', idType: 'NIM', idNumber: '', jurusan: '' });
+  };
+
+
+  // --- AI GEMINI LOGIC ---
   const extractWithGemini = async (base64Data, mimeType, type) => {
     const keyToUse = PERMANEN_GEMINI_API || geminiApiKey;
     if (!keyToUse) throw new Error("Kunci API Gemini belum dimasukkan.");
-
     let prompt = `Ekstrak data KTP dari gambar ini. Kembalikan HASILNYA HANYA DALAM FORMAT JSON SEPERTI INI: {"nik": "nomor nik", "nama": "nama lengkap", "tempatLahir": "kota lahir", "tglLahir": "tanggal (contoh: 12 Januari 1990)", "alamat": "alamat lengkap"}. Jangan ada teks lain selain JSON.`;
-    if (type === "passport") {
-      prompt = `Ekstrak data Paspor dari gambar ini. Kembalikan HASILNYA HANYA DALAM FORMAT JSON SEPERTI INI: {"surname": "nama belakang", "givenName": "nama depan", "gender": "M atau F", "birthDate": "DD/MM/YYYY", "passportNumber": "nomor paspor", "issueDate": "DD/MM/YYYY", "expiryDate": "DD/MM/YYYY", "issuingCountry": "INDONESIA"}. Jangan ada teks lain selain JSON.`;
-    }
+    if (type === "passport") prompt = `Ekstrak data Paspor dari gambar ini. Kembalikan HASILNYA HANYA DALAM FORMAT JSON SEPERTI INI: {"surname": "nama belakang", "givenName": "nama depan", "gender": "M atau F", "birthDate": "DD/MM/YYYY", "passportNumber": "nomor paspor", "issueDate": "DD/MM/YYYY", "expiryDate": "DD/MM/YYYY", "issuingCountry": "INDONESIA"}. Jangan ada teks lain selain JSON.`;
 
-    // Menggunakan Array Rute API untuk memastikan 100% Tembus
-    const endpointsToTry = [
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${keyToUse}`,
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${keyToUse}`,
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${keyToUse}`
-    ];
-
+    const endpointsToTry = [ `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${keyToUse}`, `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${keyToUse}`, `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${keyToUse}` ];
     let lastError = "";
 
     for (const url of endpointsToTry) {
       try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType, data: base64Data } }] }]
-          })
-        });
-
+        const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType, data: base64Data } }] }] }) });
         const result = await response.json();
-        
-        if (result.error) {
-          lastError = result.error.message;
-          continue; // Jika gagal, coba link API berikutnya
-        }
-
+        if (result.error) { lastError = result.error.message; continue; }
         const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!textResponse) continue;
-        
-        const cleanedJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-        return JSON.parse(cleanedJson);
-
-      } catch (err) {
-        lastError = err.message;
-      }
+        return JSON.parse(textResponse.replace(/```json/g, '').replace(/```/g, '').trim());
+      } catch (err) { lastError = err.message; }
     }
-    
     throw new Error(lastError || "Semua jalur API Google sedang sibuk/error.");
   };
 
-  // --- GENERAL PROCESSING HELPER ---
   const handleExtractedData = (extracted, mode) => {
-    if (mode === 'rekom') {
-      setFormDataRekom({ ...extracted }); 
-      setViewRekom('form');
-    } else if (mode === 'cuti') {
-      setFormDataCuti(prev => ({ ...prev, nama: extracted.nama || '', alamat: extracted.alamat || '', idType: 'NIK', idNumber: extracted.nik || '' })); 
-      setViewCuti('form');
-    } else if (mode === 'passport') {
-      const newPax = { 
-        id: Date.now(), paxType: 'ADT', gender: extracted.gender || 'M', 
-        title: extracted.gender === 'M' ? 'MR' : 'MRS', 
-        lastName: extracted.surname || '', firstName: extracted.givenName || '', 
-        birthDate: extracted.birthDate || '', passportNumber: extracted.passportNumber || '', 
-        issueDate: extracted.issueDate || '', expiryDate: extracted.expiryDate || '', 
-        nationality: 'INDONESIA', issuingCountry: extracted.issuingCountry || 'INDONESIA', 
-        meal1: '', meal2: '', seating: '' 
-      };
+    if (mode === 'rekom') { setFormDataRekom({ ...extracted }); setViewRekom('form'); } 
+    else if (mode === 'cuti') { setFormDataCuti(prev => ({ ...prev, nama: extracted.nama || '', alamat: extracted.alamat || '', idType: 'NIK', idNumber: extracted.nik || '' })); setViewCuti('form'); } 
+    else if (mode === 'passport') {
+      const newPax = { id: Date.now(), paxType: 'ADT', gender: extracted.gender || 'M', title: extracted.gender === 'M' ? 'MR' : 'MRS', lastName: extracted.surname || '', firstName: extracted.givenName || '', birthDate: extracted.birthDate || '', passportNumber: extracted.passportNumber || '', issueDate: extracted.issueDate || '', expiryDate: extracted.expiryDate || '', nationality: 'INDONESIA', issuingCountry: extracted.issuingCountry || 'INDONESIA', meal1: '', meal2: '', seating: '' };
       setManifestData(prev => [...prev, newPax]);
     }
   };
 
-  // --- HANDLER UPLOAD LOKAL ---
   const handleLocalUpload = async (e, mode) => {
     const file = e.target.files[0]; if (!file) return;
-    if (gdToken) uploadToGoogleDrive(file); 
-
     if (mode === 'rekom') setIsProcessingRekom(true);
     if (mode === 'cuti') setIsProcessingCutiKTP(true);
     if (mode === 'passport') setIsProcessingPassport(true);
-
     try {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
+      const reader = new FileReader(); reader.readAsDataURL(file);
       reader.onload = async () => {
         try {
           const base64String = reader.result.split(',')[1];
@@ -297,46 +301,29 @@ export default function App() {
           handleExtractedData(extracted, mode);
         } catch(err) {
           alert(`Pesan Sistem AI: ${err.message}`);
-          if (mode === 'rekom') setViewRekom('form');
-          if (mode === 'cuti') setViewCuti('form');
+          if (mode === 'rekom') setViewRekom('form'); if (mode === 'cuti') setViewCuti('form');
         } finally {
           setIsProcessingRekom(false); setIsProcessingCutiKTP(false); setIsProcessingPassport(false);
           if (e.target) e.target.value = null;
         }
       };
-    } catch (err) {
-      setIsProcessingRekom(false); setIsProcessingCutiKTP(false); setIsProcessingPassport(false);
-    }
+    } catch (err) { setIsProcessingRekom(false); setIsProcessingCutiKTP(false); setIsProcessingPassport(false); }
   };
 
-  // --- HANDLER UPLOAD DARI DRIVE ---
   const openDriveModal = (mode) => {
-    if (!gdToken) {
-      alert("Anda belum login ke Google Drive. Silakan buka menu Google Drive di atas untuk Login terlebih dahulu.");
-      return;
-    }
-    setDriveSelectTarget(mode);
-    fetchDriveFiles();
-    setIsDriveModalOpen(true);
+    if (!gdToken) return alert("Anda belum login ke Google Drive. Silakan buka menu Google Drive di atas untuk Login.");
+    setDriveSelectTarget(mode); setIsDriveModalOpen(true); fetchDriveFiles(gdToken, currentDriveFolder);
   };
 
   const handleDriveFileSelect = async (driveFile) => {
-    setIsDriveModalOpen(false);
-    const mode = driveSelectTarget;
-    
+    setIsDriveModalOpen(false); const mode = driveSelectTarget;
     if (mode === 'rekom') setIsProcessingRekom(true);
     if (mode === 'cuti') setIsProcessingCutiKTP(true);
     if (mode === 'passport') setIsProcessingPassport(true);
-
     try {
-      const response = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFile.id}?alt=media`, {
-        headers: { Authorization: `Bearer ${gdToken}` }
-      });
-      if (!response.ok) throw new Error("Gagal mengunduh gambar dari Google Drive.");
-      const blob = await response.blob();
-      
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFile.id}?alt=media`, { headers: { Authorization: `Bearer ${gdToken}` } });
+      if (!res.ok) throw new Error("Gagal mengunduh gambar.");
+      const blob = await res.blob(); const reader = new FileReader(); reader.readAsDataURL(blob);
       reader.onload = async () => {
         try {
           const base64String = reader.result.split(',')[1];
@@ -344,11 +331,8 @@ export default function App() {
           handleExtractedData(extracted, mode);
         } catch(err) {
           alert(`Pesan Sistem AI: ${err.message}`);
-          if (mode === 'rekom') setViewRekom('form');
-          if (mode === 'cuti') setViewCuti('form');
-        } finally {
-          setIsProcessingRekom(false); setIsProcessingCutiKTP(false); setIsProcessingPassport(false);
-        }
+          if (mode === 'rekom') setViewRekom('form'); if (mode === 'cuti') setViewCuti('form');
+        } finally { setIsProcessingRekom(false); setIsProcessingCutiKTP(false); setIsProcessingPassport(false); }
       };
     } catch(err) {
       alert(`Gagal mengambil dari Drive: ${err.message}`);
@@ -356,20 +340,20 @@ export default function App() {
     }
   };
 
-  const updatePax = (id, field, value) => setManifestData(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
-  const removePax = (id) => setManifestData(prev => prev.filter(p => p.id !== id));
-
-  // --- SAVE & EXPORT HANDLERS ---
+  // --- SAVE DOCS (DENGAN DUKUNGAN UPDATE JIKA SEDANG EDIT) ---
   const saveAndPreviewRekom = async () => {
     setIsSavingRekom(true);
     try {
       if (firebaseConfig.apiKey !== "DUMMY") {
-        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'jamaah_rekom_paspor'), { ...formDataRekom, nomorSurat: letterNumberRekom, tanggalDibuat: serverTimestamp() });
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'counter'), { current: sequenceNumberRekom + 1 }, { merge: true });
-      } else {
-        localStorage.setItem('izi_counter_rekom', sequenceNumberRekom + 1);
+        if (editingId) {
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jamaah_rekom_paspor', editingId), { ...formDataRekom });
+        } else {
+          await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'jamaah_rekom_paspor'), { ...formDataRekom, nomorSurat: letterNumberRekom, tanggalDibuat: serverTimestamp() });
+          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'counter'), { current: sequenceNumberRekom + 1 }, { merge: true });
+          setSequenceNumberRekom(p => p + 1);
+        }
       }
-      setSequenceNumberRekom(p => p + 1); setViewRekom('preview');
+      setViewRekom('preview');
     } finally { setIsSavingRekom(false); }
   };
 
@@ -377,12 +361,15 @@ export default function App() {
     setIsSavingCuti(true);
     try {
       if (firebaseConfig.apiKey !== "DUMMY") {
-        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'jamaah_izin_cuti'), { ...formDataCuti, nomorSurat: letterNumberCuti, tanggalDibuat: serverTimestamp() });
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'counter_cuti'), { current: sequenceNumberCuti + 1 }, { merge: true });
-      } else {
-        localStorage.setItem('izi_counter_cuti', sequenceNumberCuti + 1);
+        if (editingId) {
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jamaah_izin_cuti', editingId), { ...formDataCuti });
+        } else {
+          await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'jamaah_izin_cuti'), { ...formDataCuti, nomorSurat: letterNumberCuti, tanggalDibuat: serverTimestamp() });
+          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'counter_cuti'), { current: sequenceNumberCuti + 1 }, { merge: true });
+          setSequenceNumberCuti(p => p + 1);
+        }
       }
-      setSequenceNumberCuti(prev => prev + 1); setViewCuti('preview');
+      setViewCuti('preview');
     } catch (error) { console.error(error); } finally { setIsSavingCuti(false); }
   };
 
@@ -390,12 +377,15 @@ export default function App() {
     setIsSavingSekolah(true);
     try {
       if (firebaseConfig.apiKey !== "DUMMY") {
-        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'jamaah_izin_sekolah'), { ...formDataSekolah, nomorSurat: letterNumberSekolah, tanggalDibuat: serverTimestamp() });
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'counter_sekolah'), { current: sequenceNumberSekolah + 1 }, { merge: true });
-      } else {
-        localStorage.setItem('izi_counter_sekolah', sequenceNumberSekolah + 1);
+        if (editingId) {
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'jamaah_izin_sekolah', editingId), { ...formDataSekolah });
+        } else {
+          await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'jamaah_izin_sekolah'), { ...formDataSekolah, nomorSurat: letterNumberSekolah, tanggalDibuat: serverTimestamp() });
+          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'counter_sekolah'), { current: sequenceNumberSekolah + 1 }, { merge: true });
+          setSequenceNumberSekolah(p => p + 1);
+        }
       }
-      setSequenceNumberSekolah(prev => prev + 1); setViewSekolah('preview');
+      setViewSekolah('preview');
     } catch (error) { console.error(error); } finally { setIsSavingSekolah(false); }
   };
 
@@ -411,25 +401,14 @@ export default function App() {
       manifestData.forEach((p, i) => ws.addRow([i+1, p.paxType, p.gender, p.title, p.lastName, p.firstName, p.birthDate, p.passportNumber, p.issueDate, p.expiryDate, p.nationality, p.issuingCountry, p.meal1, p.meal2, p.seating]));
       const buffer = await wb.xlsx.writeBuffer();
       const file = new File([buffer], `MANIFEST_${Date.now()}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = window.URL.createObjectURL(file);
-      const a = document.createElement('a'); a.href = url; a.download = file.name; a.click();
-      if (gdToken) uploadToGoogleDrive(file);
+      const url = window.URL.createObjectURL(file); const a = document.createElement('a'); a.href = url; a.download = file.name; a.click();
+      
+      // Upload ke GDrive jika terhubung
+      if (gdToken) {
+        await uploadToGoogleDrive(file);
+        alert("Excel Manifest otomatis disalin ke Google Drive (Folder saat ini).");
+      }
     } finally { setIsExportingExcel(false); }
-  };
-
-  // --- HANDLER SIMPAN PENGATURAN KOP ---
-  const saveHeaderSettings = async () => {
-    setIsSavingSettings(true);
-    try { 
-        if (firebaseConfig.apiKey !== "DUMMY") {
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'header'), headerSettings, { merge: true }); 
-        } else {
-            localStorage.setItem('izi_header_settings', JSON.stringify(headerSettings));
-        }
-        setIsSettingsOpen(false); 
-        alert("Pengaturan Kop Surat berhasil disimpan!");
-    } 
-    catch (error) { alert("Gagal menyimpan pengaturan."); } finally { setIsSavingSettings(false); }
   };
 
   const KopSurat = () => (
@@ -447,16 +426,17 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans selection:bg-blue-200">
+    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans selection:bg-blue-200 pb-20">
+      {/* HEADER NAV */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-20 print:hidden shadow-sm overflow-x-auto">
         <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-blue-800 font-bold tracking-tight">
-            <div className="bg-blue-600 text-white p-2 rounded-lg"><Users className="w-5 h-5"/></div>
-            IZI System
+            <div className="bg-blue-600 text-white p-2 rounded-lg"><Users className="w-5 h-5"/></div> IZI System
           </div>
           <div className="flex bg-gray-100 p-1 rounded-xl whitespace-nowrap overflow-x-auto w-full md:w-auto">
-            <button onClick={() => setAppMode('persuratan')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${appMode === 'persuratan' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><FileText className="w-4 h-4"/> Persuratan</button>
+            <button onClick={() => { setAppMode('persuratan'); resetForm(); }} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${appMode === 'persuratan' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><FileText className="w-4 h-4"/> Persuratan</button>
             <button onClick={() => setAppMode('manifest')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${appMode === 'manifest' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><FileSpreadsheet className="w-4 h-4"/> Manifest</button>
+            <button onClick={() => setAppMode('riwayat')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${appMode === 'riwayat' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Archive className="w-4 h-4"/> Arsip Data</button>
             <button onClick={() => setAppMode('drive')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${appMode === 'drive' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-600 hover:bg-indigo-50'}`}><Cloud className="w-4 h-4"/> Google Drive</button>
           </div>
           <div className="flex gap-3 text-sm items-center whitespace-nowrap">
@@ -466,31 +446,40 @@ export default function App() {
         </div>
       </header>
 
-      {/* --- MODAL PILIH DARI GOOGLE DRIVE --- */}
+      {/* MODAL DRIVE PICKER (HANYA MUNCULKAN GAMBAR) */}
       {isDriveModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-2xl w-full max-w-4xl p-6 shadow-2xl flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center mb-4 border-b pb-3">
-              <h2 className="text-xl font-bold flex items-center gap-2"><Cloud className="w-6 h-6 text-blue-600" /> Pilih Gambar dari Google Drive</h2>
+              <h2 className="text-xl font-bold flex items-center gap-2"><Cloud className="w-6 h-6 text-blue-600" /> Pilih Gambar dari Drive</h2>
               <button onClick={() => setIsDriveModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-5 h-5"/></button>
             </div>
             
+            {/* Breadcrumbs Drive Modal */}
+            <div className="flex items-center gap-2 mb-4 text-sm font-medium text-gray-600 overflow-x-auto pb-2">
+              {driveBreadcrumbs.map((crumb, idx) => (
+                <div key={crumb.id} className="flex items-center gap-2 whitespace-nowrap">
+                  <button onClick={() => navigateBreadcrumb(idx)} className="hover:text-blue-600">{crumb.name}</button>
+                  {idx < driveBreadcrumbs.length - 1 && <ChevronRight className="w-4 h-4 text-gray-400" />}
+                </div>
+              ))}
+            </div>
+
             <div className="flex-1 overflow-y-auto min-h-[300px] p-2 hide-scroll">
               {isDriveLoading ? (
-                <div className="flex flex-col items-center justify-center h-full text-gray-500 py-20">
-                  <Loader2 className="w-8 h-8 animate-spin mb-2 text-blue-600" />
-                  <p>Memuat isi Google Drive...</p>
-                </div>
-              ) : driveFiles.filter(f => f.mimeType.startsWith('image/')).length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-gray-500 py-20">
-                  <ImageIcon className="w-12 h-12 text-gray-300 mb-2" />
-                  <p>Tidak ada file gambar (.jpg/.png) ditemukan di Google Drive Anda.</p>
-                  <p className="text-xs mt-2">Atau, Anda perlu menghubungkan ulang Drive dengan akses penuh.</p>
-                </div>
+                <div className="flex flex-col items-center justify-center h-full text-gray-500 py-20"><Loader2 className="w-8 h-8 animate-spin mb-2 text-blue-600" /><p>Memuat isi Google Drive...</p></div>
+              ) : driveFiles.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-gray-500 py-20"><ImageIcon className="w-12 h-12 text-gray-300 mb-2" /><p>Folder ini kosong.</p></div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  {driveFiles.filter(f => f.mimeType === 'application/vnd.google-apps.folder').map(folder => (
+                    <div key={folder.id} onClick={() => handleFolderClick(folder)} className="group border border-gray-200 p-3 rounded-xl hover:shadow-md hover:border-blue-500 cursor-pointer transition-all text-center">
+                      <FolderIcon className="w-12 h-12 text-blue-500 mx-auto mb-2 group-hover:scale-105 transition-transform" fill="currentColor"/>
+                      <p className="text-xs font-medium truncate text-gray-700" title={folder.name}>{folder.name}</p>
+                    </div>
+                  ))}
                   {driveFiles.filter(f => f.mimeType.startsWith('image/')).map(f => (
-                    <div key={f.id} onClick={() => handleDriveFileSelect(f)} className="group border border-gray-200 p-2 rounded-xl hover:shadow-md hover:border-blue-500 cursor-pointer transition-all">
+                    <div key={f.id} onClick={() => handleDriveFileSelect(f)} className="group border border-gray-200 p-2 rounded-xl hover:shadow-md hover:border-green-500 cursor-pointer transition-all">
                       <div className="aspect-square bg-gray-50 rounded-lg flex items-center justify-center mb-2 overflow-hidden">
                         {f.thumbnailLink ? <img src={f.thumbnailLink} className="w-full h-full object-cover group-hover:scale-105 transition-transform" alt={f.name}/> : <ImageIcon className="text-gray-300 w-8 h-8" />}
                       </div>
@@ -504,76 +493,61 @@ export default function App() {
         </div>
       )}
 
-      {/* --- MODAL PENGATURAN API --- */}
-      {isApiSettingsOpen && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><Key className="w-6 h-6 text-indigo-600" /> Pengaturan API Keys</h2>
-            <div className="space-y-4 mb-6">
-              
-              <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg">
-                <h3 className="text-sm font-bold text-blue-800 mb-2">1. Kunci AI Gemini (Akun A)</h3>
-                {PERMANEN_GEMINI_API ? <p className="text-sm text-green-700 font-medium flex items-center gap-2"><CheckCircle className="w-5 h-5"/> Aktif & Permanen</p> :
-                <input type="password" value={geminiApiKey} onChange={(e) => setGeminiApiKey(e.target.value)} placeholder="Paste kunci AIzaSy..." className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg" />}
-              </div>
-
-              <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                <h3 className="text-sm font-bold text-gray-700 mb-2">2. Google Drive Client ID (Akun B)</h3>
-                {PERMANEN_GD_CLIENT_ID ? <p className="text-sm text-green-700 font-medium flex items-center gap-2"><CheckCircle className="w-5 h-5"/> Aktif & Permanen</p> :
-                <input type="text" value={gdClientId} onChange={(e) => setGdClientId(e.target.value)} placeholder="Client ID" className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg mb-2" />}
-              </div>
-
-            </div>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setIsApiSettingsOpen(false)} className="px-4 py-2 text-gray-600 rounded-lg text-sm">Tutup</button>
-              {(!PERMANEN_GD_CLIENT_ID || !PERMANEN_GEMINI_API) && <button onClick={handleSaveApiKeys} className="bg-indigo-600 text-white px-5 py-2 rounded-xl font-medium text-sm">Simpan</button>}
-            </div>
+      {/* --- MODE ARSIP (HISTORY) --- */}
+      {appMode === 'riwayat' && (
+        <main className="max-w-5xl mx-auto p-4 sm:p-6 print:hidden">
+          <h2 className="text-2xl font-bold mb-6 flex items-center gap-2"><Archive className="text-blue-600" /> Arsip Dokumen Tersimpan</h2>
+          
+          <div className="flex bg-white p-1 rounded-xl shadow-sm border border-gray-200 w-full mb-6">
+            <button onClick={() => setHistoryType('rekom')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${historyType === 'rekom' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>Rekom Paspor</button>
+            <button onClick={() => setHistoryType('cuti')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${historyType === 'cuti' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>Izin Cuti</button>
+            <button onClick={() => setHistoryType('sekolah')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${historyType === 'sekolah' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>Izin Sekolah</button>
           </div>
-        </div>
-      )}
 
-      {/* --- MODAL KOP --- */}
-      {isSettingsOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
-            <h2 className="text-xl font-bold mb-4">Pengaturan Kop Surat</h2>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Logo (PNG/JPG)</label>
-              <input type="file" accept="image/*" onChange={(e) => { const f = e.target.files[0]; if(f){ const r = new FileReader(); r.onload = (ev) => setHeaderSettings(p => ({...p, logo: ev.target.result})); r.readAsDataURL(f); } }} className="text-xs w-full" />
-            </div>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Teks Kanan Atas</label>
-              <textarea rows="3" value={headerSettings.info} onChange={(e) => setHeaderSettings(p => ({...p, info: e.target.value}))} className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
-            </div>
-            <div className="flex items-center mb-6">
-              <input type="checkbox" id="showSig" checked={headerSettings.showSignature} onChange={() => setHeaderSettings(p => ({...p, showSignature: !p.showSignature}))} className="w-4 h-4 text-blue-600 rounded cursor-pointer"/>
-              <label htmlFor="showSig" className="ml-2 text-sm font-medium cursor-pointer">Tampilkan Tanda Tangan</label>
-            </div>
-            {headerSettings.showSignature && (
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Upload Tanda Tangan</label>
-                <input type="file" accept="image/*" onChange={(e) => { const f = e.target.files[0]; if(f){ const r = new FileReader(); r.onload = (ev) => setHeaderSettings(p => ({...p, signature: ev.target.result})); r.readAsDataURL(f); } }} className="text-xs w-full"/>
+          <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
+            {isHistoryLoading ? (
+              <div className="py-20 text-center text-gray-500"><Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-blue-500" /> Memuat data arsip...</div>
+            ) : historyData.length === 0 ? (
+              <div className="py-20 text-center text-gray-500"><FileIcon className="w-12 h-12 mx-auto mb-2 text-gray-300" /> Belum ada arsip dokumen yang disimpan.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left whitespace-nowrap">
+                  <thead className="bg-gray-100 border-b">
+                    <tr>
+                      <th className="px-4 py-3">No. Surat</th>
+                      <th className="px-4 py-3">Nama Jamaah</th>
+                      <th className="px-4 py-3">Tanggal Dibuat</th>
+                      <th className="px-4 py-3 text-center">Aksi Edit / Hapus</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyData.map((item) => (
+                      <tr key={item.id} className="border-t hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-900">{item.nomorSurat}</td>
+                        <td className="px-4 py-3 font-bold uppercase">{item.nama}</td>
+                        <td className="px-4 py-3 text-gray-500">{item.tanggalDibuat ? new Date(item.tanggalDibuat.toDate()).toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'}) : '-'}</td>
+                        <td className="px-4 py-3 flex justify-center gap-2">
+                          <button onClick={() => handleEditHistory(item)} className="bg-blue-100 text-blue-700 p-2 rounded hover:bg-blue-200 transition-colors" title="Edit"><Edit className="w-4 h-4"/></button>
+                          <button onClick={() => handleDeleteHistory(item.id)} className="bg-red-100 text-red-600 p-2 rounded hover:bg-red-200 transition-colors" title="Hapus"><Trash2 className="w-4 h-4"/></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setIsSettingsOpen(false)} className="px-4 py-2 text-gray-600 rounded-lg text-sm">Tutup</button>
-              <button onClick={saveHeaderSettings} disabled={isSavingSettings} className="bg-blue-600 text-white px-5 py-2 rounded-xl font-medium hover:bg-blue-700 text-sm">
-                {isSavingSettings ? <Loader2 className="w-4 h-4 animate-spin inline mr-1" /> : null}
-                {isSavingSettings ? 'Menyimpan...' : 'Simpan Form'}
-              </button>
-            </div>
           </div>
-        </div>
+        </main>
       )}
 
       {/* --- MODE PERSURATAN --- */}
       {appMode === 'persuratan' && (
-        <main className="max-w-4xl mx-auto p-4 sm:p-6 pb-20 print:p-0">
+        <main className="max-w-4xl mx-auto p-4 sm:p-6 print:p-0">
           <div className="flex justify-center mb-6 print:hidden">
             <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 overflow-x-auto">
-              <button onClick={() => setSuratType('rekom')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${suratType === 'rekom' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Rekom Paspor</button>
-              <button onClick={() => setSuratType('cuti')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${suratType === 'cuti' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Izin Cuti</button>
-              <button onClick={() => setSuratType('sekolah')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${suratType === 'sekolah' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Izin Sekolah</button>
+              <button onClick={() => { setSuratType('rekom'); resetForm(); setViewRekom('upload'); }} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${suratType === 'rekom' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Rekom Paspor</button>
+              <button onClick={() => { setSuratType('cuti'); resetForm(); setViewCuti('upload'); }} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${suratType === 'cuti' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Izin Cuti</button>
+              <button onClick={() => { setSuratType('sekolah'); resetForm(); setViewSekolah('form'); }} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${suratType === 'sekolah' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Izin Sekolah</button>
             </div>
           </div>
 
@@ -583,26 +557,23 @@ export default function App() {
               <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6"><Camera className="w-10 h-10" /></div>
               <h2 className="text-2xl font-semibold mb-2">Scan KTP AI</h2>
               <p className="text-sm text-gray-500 mb-6">Pilih foto KTP yang terang untuk diproses otomatis oleh AI.</p>
-              
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full mb-4">
                 <div className="relative group w-full sm:w-1/2">
                   <input type="file" accept="image/*" capture="environment" onChange={(e) => handleLocalUpload(e, 'rekom')} disabled={isProcessingRekom} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                  <div className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold ${isProcessingRekom ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white shadow-md hover:bg-blue-700'}`}>
-                    {isProcessingRekom ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />} {isProcessingRekom ? 'AI MEMBACA...' : 'VIA LOKAL'}
-                  </div>
+                  <div className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold ${isProcessingRekom ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white shadow-md hover:bg-blue-700'}`}>{isProcessingRekom ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />} {isProcessingRekom ? 'AI MEMBACA...' : 'VIA LOKAL'}</div>
                 </div>
-                <button onClick={() => openDriveModal('rekom')} disabled={isProcessingRekom} className="flex items-center justify-center gap-2 w-full sm:w-1/2 py-3 rounded-xl font-bold bg-white border-2 border-blue-600 text-blue-600 shadow-sm hover:bg-blue-50">
-                  {isProcessingRekom ? <Loader2 className="w-5 h-5 animate-spin" /> : <Cloud className="w-5 h-5" />} {isProcessingRekom ? 'AI MEMBACA...' : 'VIA DRIVE'}
-                </button>
+                <button onClick={() => openDriveModal('rekom')} disabled={isProcessingRekom} className="flex items-center justify-center gap-2 w-full sm:w-1/2 py-3 rounded-xl font-bold bg-white border-2 border-blue-600 text-blue-600 shadow-sm hover:bg-blue-50">{isProcessingRekom ? <Loader2 className="w-5 h-5 animate-spin" /> : <Cloud className="w-5 h-5" />} {isProcessingRekom ? 'AI MEMBACA...' : 'VIA DRIVE'}</button>
               </div>
-
               <button onClick={() => setViewRekom('form')} className="text-sm text-blue-600 underline">Isi manual saja</button>
             </div>
           )}
 
           {suratType === 'rekom' && viewRekom === 'form' && (
             <div className="bg-white rounded-2xl shadow-sm border p-6">
-              <h2 className="text-xl font-semibold mb-6">Data Rekomendasi Paspor</h2>
+              <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
+                {editingId ? <Edit className="text-blue-500" /> : <FileText className="text-blue-500" />} 
+                {editingId ? 'Edit Data Rekom Paspor' : 'Buat Rekom Paspor Baru'}
+              </h2>
               <div className="space-y-4">
                 <input type="text" placeholder="Nama Lengkap" value={formDataRekom.nama} onChange={e=>setFormDataRekom(p=>({...p, nama:e.target.value}))} className="w-full px-4 py-2 border rounded-lg" />
                 <input type="text" placeholder="NIK" value={formDataRekom.nik} onChange={e=>setFormDataRekom(p=>({...p, nik:e.target.value}))} className="w-full px-4 py-2 border rounded-lg" />
@@ -612,17 +583,20 @@ export default function App() {
                 </div>
                 <textarea placeholder="Alamat Lengkap" value={formDataRekom.alamat} onChange={e=>setFormDataRekom(p=>({...p, alamat:e.target.value}))} className="w-full px-4 py-2 border rounded-lg"></textarea>
               </div>
-              <button onClick={saveAndPreviewRekom} className="mt-6 w-full bg-blue-600 text-white py-3 rounded-xl font-bold">BUAT SURAT</button>
+              <button onClick={saveAndPreviewRekom} className="mt-6 w-full bg-blue-600 text-white py-3 rounded-xl font-bold">{editingId ? 'SIMPAN PERUBAHAN & LIHAT' : 'BUAT SURAT & LIHAT'}</button>
             </div>
           )}
 
           {suratType === 'rekom' && viewRekom === 'preview' && (
             <div>
-              <div className="mb-6 flex justify-between bg-white p-4 rounded-xl shadow-sm border print:hidden">
-                <button onClick={()=>setViewRekom('form')} className="text-gray-500">Edit Data</button>
-                <button onClick={() => window.print()} className="bg-gray-900 text-white px-5 py-2 rounded-lg flex items-center gap-2"><Printer className="w-4 h-4" /> CETAK PDF</button>
+              <div className="mb-6 flex flex-wrap justify-between bg-white p-4 rounded-xl shadow-sm border print:hidden gap-2">
+                <button onClick={()=>setViewRekom('form')} className="text-gray-500 font-medium">← Edit Ulang</button>
+                <div className="flex gap-2">
+                  <button onClick={() => savePdfToDrive(`Rekom_Paspor_${formDataRekom.nama}`, 'print-rekom')} disabled={isSavingToDrive} className="bg-indigo-100 text-indigo-700 hover:bg-indigo-200 px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm">{isSavingToDrive ? <Loader2 className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4"/>} SIMPAN PDF KE DRIVE</button>
+                  <button onClick={() => window.print()} className="bg-gray-900 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-lg"><Printer className="w-4 h-4" /> CETAK / SAVE LOKAL</button>
+                </div>
               </div>
-              <div className="bg-white mx-auto shadow-lg p-[20mm] w-full max-w-[210mm] min-h-[297mm] print:shadow-none print:p-0">
+              <div id="print-rekom" className="bg-white mx-auto shadow-lg p-[20mm] w-full max-w-[210mm] min-h-[297mm] print:shadow-none print:p-0">
                 <KopSurat />
                 <div className="text-[11pt]" style={{ fontFamily: 'Times New Roman, serif' }}>
                   <p className="mb-6">Nomor: {letterNumberRekom}<br/>Perihal: <b>SURAT REKOMENDASI PEMBUATAN PASPOR</b></p>
@@ -654,26 +628,23 @@ export default function App() {
               <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6"><Camera className="w-10 h-10" /></div>
               <h2 className="text-2xl font-semibold mb-2">Scan KTP AI</h2>
               <p className="text-sm text-gray-500 mb-6">Pilih foto KTP yang terang untuk diproses otomatis oleh AI.</p>
-              
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full mb-4">
                 <div className="relative group w-full sm:w-1/2">
                   <input type="file" accept="image/*" capture="environment" onChange={(e) => handleLocalUpload(e, 'cuti')} disabled={isProcessingCutiKTP} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                  <div className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold ${isProcessingCutiKTP ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white shadow-md hover:bg-blue-700'}`}>
-                    {isProcessingCutiKTP ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />} {isProcessingCutiKTP ? 'AI MEMBACA...' : 'VIA LOKAL'}
-                  </div>
+                  <div className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold ${isProcessingCutiKTP ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white shadow-md hover:bg-blue-700'}`}>{isProcessingCutiKTP ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />} {isProcessingCutiKTP ? 'AI MEMBACA...' : 'VIA LOKAL'}</div>
                 </div>
-                <button onClick={() => openDriveModal('cuti')} disabled={isProcessingCutiKTP} className="flex items-center justify-center gap-2 w-full sm:w-1/2 py-3 rounded-xl font-bold bg-white border-2 border-blue-600 text-blue-600 shadow-sm hover:bg-blue-50">
-                  {isProcessingCutiKTP ? <Loader2 className="w-5 h-5 animate-spin" /> : <Cloud className="w-5 h-5" />} {isProcessingCutiKTP ? 'AI MEMBACA...' : 'VIA DRIVE'}
-                </button>
+                <button onClick={() => openDriveModal('cuti')} disabled={isProcessingCutiKTP} className="flex items-center justify-center gap-2 w-full sm:w-1/2 py-3 rounded-xl font-bold bg-white border-2 border-blue-600 text-blue-600 shadow-sm hover:bg-blue-50">{isProcessingCutiKTP ? <Loader2 className="w-5 h-5 animate-spin" /> : <Cloud className="w-5 h-5" />} {isProcessingCutiKTP ? 'AI MEMBACA...' : 'VIA DRIVE'}</button>
               </div>
-
               <button onClick={() => setViewCuti('form')} className="text-sm text-blue-600 underline">Lewati & isi manual</button>
             </div>
           )}
 
           {suratType === 'cuti' && viewCuti === 'form' && (
             <div className="bg-white rounded-2xl shadow-sm border p-6 print:hidden">
-              <h2 className="text-xl font-semibold mb-6 flex items-center gap-2"><Briefcase className="w-6 h-6 text-blue-500" /> Isi Data Surat Izin Cuti</h2>
+              <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
+                {editingId ? <Edit className="w-6 h-6 text-blue-500" /> : <Briefcase className="w-6 h-6 text-blue-500" />} 
+                {editingId ? 'Edit Data Surat Izin Cuti' : 'Buat Surat Izin Cuti'}
+              </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-4">
                   <h3 className="text-sm font-bold text-gray-500 uppercase border-b pb-2">Info Surat & Tujuan</h3>
@@ -697,17 +668,20 @@ export default function App() {
                   <div><label className="block text-sm text-gray-700 mb-1">Alamat</label><textarea value={formDataCuti.alamat} onChange={(e) => setFormDataCuti(p => ({...p, alamat: e.target.value}))} rows="2" className="w-full px-4 py-2 border rounded-lg"></textarea></div>
                 </div>
               </div>
-              <button onClick={saveAndPreviewCuti} className="mt-8 w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-md hover:bg-blue-700">BUAT SURAT CUTI</button>
+              <button onClick={saveAndPreviewCuti} className="mt-8 w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-md hover:bg-blue-700">{editingId ? 'SIMPAN PERUBAHAN & LIHAT' : 'BUAT SURAT CUTI'}</button>
             </div>
           )}
 
           {suratType === 'cuti' && viewCuti === 'preview' && (
              <div>
-              <div className="mb-6 flex justify-between bg-white p-4 rounded-xl shadow-sm border print:hidden">
-                <button onClick={()=>setViewCuti('form')} className="text-gray-500">← Kembali Edit</button>
-                <button onClick={() => window.print()} className="bg-gray-900 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-lg"><Printer className="w-4 h-4" /> CETAK PDF</button>
+              <div className="mb-6 flex flex-wrap justify-between bg-white p-4 rounded-xl shadow-sm border print:hidden gap-2">
+                <button onClick={()=>setViewCuti('form')} className="text-gray-500 font-medium">← Edit Ulang</button>
+                <div className="flex gap-2">
+                  <button onClick={() => savePdfToDrive(`Izin_Cuti_${formDataCuti.nama}`, 'print-cuti')} disabled={isSavingToDrive} className="bg-indigo-100 text-indigo-700 hover:bg-indigo-200 px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm">{isSavingToDrive ? <Loader2 className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4"/>} SIMPAN PDF KE DRIVE</button>
+                  <button onClick={() => window.print()} className="bg-gray-900 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-lg"><Printer className="w-4 h-4" /> CETAK / SAVE LOKAL</button>
+                </div>
               </div>
-              <div className="bg-white mx-auto shadow-lg p-[20mm] w-full max-w-[210mm] min-h-[297mm] print:shadow-none print:p-0">
+              <div id="print-cuti" className="bg-white mx-auto shadow-lg p-[20mm] w-full max-w-[210mm] min-h-[297mm] print:shadow-none print:p-0">
                 <KopSurat />
                 <div className="text-[11pt]" style={{ fontFamily: 'Times New Roman, serif', lineHeight: '1.5' }}>
                   <table className="mb-6"><tbody>
@@ -742,7 +716,10 @@ export default function App() {
           {/* RENDER IZIN SEKOLAH */}
           {suratType === 'sekolah' && viewSekolah === 'form' && (
             <div className="bg-white rounded-2xl shadow-sm border p-6 print:hidden">
-              <h2 className="text-xl font-semibold mb-6 flex items-center gap-2"><GraduationCap className="w-6 h-6 text-blue-500" /> Isi Data Surat Izin Sekolah/Kampus</h2>
+              <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
+                {editingId ? <Edit className="w-6 h-6 text-blue-500" /> : <GraduationCap className="w-6 h-6 text-blue-500" />} 
+                {editingId ? 'Edit Data Izin Sekolah/Kampus' : 'Buat Izin Sekolah/Kampus'}
+              </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-4">
                   <h3 className="text-sm font-bold text-gray-500 uppercase border-b pb-2">Info Surat & Tujuan</h3>
@@ -764,17 +741,20 @@ export default function App() {
                   <div><label className="block text-sm text-gray-700 mb-1">{formDataSekolah.tingkat === 'Kampus' ? 'Jurusan / Prodi' : 'Kelas'}</label><input type="text" value={formDataSekolah.jurusan} onChange={(e) => setFormDataSekolah(p => ({...p, jurusan: e.target.value}))} className="w-full px-4 py-2 border rounded-lg" /></div>
                 </div>
               </div>
-              <button onClick={saveAndPreviewSekolah} className="mt-8 w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-md hover:bg-blue-700">BUAT SURAT IZIN</button>
+              <button onClick={saveAndPreviewSekolah} className="mt-8 w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-md hover:bg-blue-700">{editingId ? 'SIMPAN PERUBAHAN & LIHAT' : 'BUAT SURAT IZIN'}</button>
             </div>
           )}
 
           {suratType === 'sekolah' && viewSekolah === 'preview' && (
              <div>
-              <div className="mb-6 flex justify-between bg-white p-4 rounded-xl shadow-sm border print:hidden">
-                <button onClick={()=>setViewSekolah('form')} className="text-gray-500">← Kembali Edit</button>
-                <button onClick={() => window.print()} className="bg-gray-900 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-lg"><Printer className="w-4 h-4" /> CETAK PDF</button>
+              <div className="mb-6 flex flex-wrap justify-between bg-white p-4 rounded-xl shadow-sm border print:hidden gap-2">
+                <button onClick={()=>setViewSekolah('form')} className="text-gray-500 font-medium">← Edit Ulang</button>
+                <div className="flex gap-2">
+                  <button onClick={() => savePdfToDrive(`Izin_Sekolah_${formDataSekolah.nama}`, 'print-sekolah')} disabled={isSavingToDrive} className="bg-indigo-100 text-indigo-700 hover:bg-indigo-200 px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm">{isSavingToDrive ? <Loader2 className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4"/>} SIMPAN PDF KE DRIVE</button>
+                  <button onClick={() => window.print()} className="bg-gray-900 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-lg"><Printer className="w-4 h-4" /> CETAK / SAVE LOKAL</button>
+                </div>
               </div>
-              <div className="bg-white mx-auto shadow-lg p-[20mm] w-full max-w-[210mm] min-h-[297mm] print:shadow-none print:p-0">
+              <div id="print-sekolah" className="bg-white mx-auto shadow-lg p-[20mm] w-full max-w-[210mm] min-h-[297mm] print:shadow-none print:p-0">
                 <KopSurat />
                 <div className="text-[11pt]" style={{ fontFamily: 'Times New Roman, serif', lineHeight: '1.5' }}>
                   <table className="mb-6"><tbody>
@@ -812,15 +792,17 @@ export default function App() {
       {/* --- MODE MANIFEST --- */}
       {appMode === 'manifest' && (
         <main className={`mx-auto p-4 sm:p-6 pb-20 ${viewManifest === 'attendance' ? 'max-w-4xl print:p-0' : 'max-w-6xl'}`}>
-          
           {viewManifest === 'attendance' ? (
             <div className="mt-4">
               <div className="mb-6 flex justify-between bg-white p-4 rounded-xl shadow-sm border print:hidden">
                 <button onClick={() => setViewManifest('table')} className="flex items-center gap-2 text-gray-600 font-medium hover:text-gray-900"><ArrowLeft className="w-4 h-4"/> Kembali ke Tabel</button>
-                <button onClick={() => window.print()} className="bg-gray-900 text-white px-6 py-2 rounded-lg flex items-center gap-2 shadow-lg"><Printer className="w-4 h-4" /> CETAK ABSEN</button>
+                <div className="flex gap-2">
+                  <button onClick={() => savePdfToDrive(`Absensi_Umroh_${Date.now()}`, 'print-absen')} disabled={isSavingToDrive} className="bg-indigo-100 text-indigo-700 hover:bg-indigo-200 px-4 py-2 rounded-lg flex items-center gap-2 font-bold shadow-sm">{isSavingToDrive ? <Loader2 className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4"/>} SIMPAN KE DRIVE</button>
+                  <button onClick={() => window.print()} className="bg-gray-900 text-white px-6 py-2 rounded-lg flex items-center gap-2 shadow-lg"><Printer className="w-4 h-4" /> CETAK / LOKAL</button>
+                </div>
               </div>
 
-              <div className="bg-white mx-auto shadow-lg p-[20mm] w-full max-w-[210mm] min-h-[297mm] print:shadow-none print:p-0">
+              <div id="print-absen" className="bg-white mx-auto shadow-lg p-[20mm] w-full max-w-[210mm] min-h-[297mm] print:shadow-none print:p-0">
                 <KopSurat />
                 <div className="text-[11pt]" style={{ fontFamily: 'Times New Roman, serif' }}>
                   <p className="font-bold text-center text-lg mb-8 underline uppercase">Daftar Hadir Jamaah Umroh</p>
@@ -841,12 +823,8 @@ export default function App() {
                           <td className="border border-black px-3 font-medium uppercase">{p.firstName} {p.lastName}</td>
                           <td className="border border-black text-center">{p.gender}</td>
                           <td className="border border-black px-2 uppercase font-mono">{p.passportNumber}</td>
-                          <td className="border border-black p-1 align-top w-24 relative border-r-0">
-                            {i % 2 === 0 ? <span className="text-[8pt] absolute top-1 left-1">{i+1}.</span> : ''}
-                          </td>
-                          <td className="border border-black p-1 align-top w-24 relative border-l-0">
-                            {i % 2 !== 0 ? <span className="text-[8pt] absolute top-1 left-1">{i+1}.</span> : ''}
-                          </td>
+                          <td className="border border-black p-1 align-top w-24 relative border-r-0">{i % 2 === 0 ? <span className="text-[8pt] absolute top-1 left-1">{i+1}.</span> : ''}</td>
+                          <td className="border border-black p-1 align-top w-24 relative border-l-0">{i % 2 !== 0 ? <span className="text-[8pt] absolute top-1 left-1">{i+1}.</span> : ''}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -854,9 +832,7 @@ export default function App() {
                   <div className="flex justify-end text-center">
                     <div className="w-64">
                       <p>Makassar, {getCurrentDateFormatted()}</p>
-                      <div className="h-24 flex items-center justify-center my-1 relative">
-                        {headerSettings.showSignature && headerSettings.signature && <img src={headerSettings.signature} alt="Sig" className="h-28 object-contain absolute z-10" style={{ mixBlendMode: 'multiply' }} />}
-                      </div>
+                      <div className="h-24 flex items-center justify-center my-1 relative">{headerSettings.showSignature && headerSettings.signature && <img src={headerSettings.signature} alt="Sig" className="h-28 object-contain absolute z-10" style={{ mixBlendMode: 'multiply' }} />}</div>
                       <p><b>MUH. NASYWAN AKMAL</b><br/>DIREKTUR IZI TRAVEL</p>
                     </div>
                   </div>
@@ -871,25 +847,15 @@ export default function App() {
                   <p className="text-sm text-gray-500">Pilih sumber foto Paspor di bawah ini.</p>
                 </div>
                 <div className="flex flex-wrap md:flex-nowrap gap-2 w-full md:w-auto">
-                  
                   <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
                     <div className="relative flex-1 min-w-[150px]">
                       <input type="file" accept="image/*" onChange={(e) => handleLocalUpload(e, 'passport')} disabled={isProcessingPassport} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                      <button className="bg-indigo-600 text-white px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 w-full text-sm">
-                        {isProcessingPassport ? <Loader2 className="animate-spin w-4 h-4"/> : <Camera className="w-4 h-4"/>} SCAN LOKAL
-                      </button>
+                      <button className="bg-indigo-600 text-white px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 w-full text-sm">{isProcessingPassport ? <Loader2 className="animate-spin w-4 h-4"/> : <Camera className="w-4 h-4"/>} SCAN LOKAL</button>
                     </div>
-                    <button onClick={() => openDriveModal('passport')} disabled={isProcessingPassport} className="flex-1 min-w-[150px] bg-white border-2 border-indigo-600 text-indigo-600 px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-sm hover:bg-indigo-50">
-                      {isProcessingPassport ? <Loader2 className="animate-spin w-4 h-4"/> : <Cloud className="w-4 h-4"/>} SCAN DRIVE
-                    </button>
+                    <button onClick={() => openDriveModal('passport')} disabled={isProcessingPassport} className="flex-1 min-w-[150px] bg-white border-2 border-indigo-600 text-indigo-600 px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-sm hover:bg-indigo-50">{isProcessingPassport ? <Loader2 className="animate-spin w-4 h-4"/> : <Cloud className="w-4 h-4"/>} SCAN DRIVE</button>
                   </div>
-                  
-                  <button onClick={() => setViewManifest('attendance')} disabled={manifestData.length === 0} className="flex-1 min-w-[120px] bg-blue-100 text-blue-700 px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 text-sm">
-                    <ClipboardList className="w-4 h-4"/> ABSENSI
-                  </button>
-                  <button onClick={exportToExcel} disabled={manifestData.length === 0} className="flex-1 min-w-[120px] bg-green-600 text-white px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 text-sm">
-                    <Download className="w-4 h-4"/> EXCEL
-                  </button>
+                  <button onClick={() => setViewManifest('attendance')} disabled={manifestData.length === 0} className="flex-1 min-w-[120px] bg-blue-100 text-blue-700 px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 text-sm"><ClipboardList className="w-4 h-4"/> ABSENSI</button>
+                  <button onClick={exportToExcel} disabled={manifestData.length === 0} className="flex-1 min-w-[120px] bg-green-600 text-white px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 text-sm"><Download className="w-4 h-4"/> EXCEL {gdToken && '(AUTO DRIVE)'}</button>
                 </div>
               </div>
 
@@ -898,12 +864,8 @@ export default function App() {
                   <table className="w-full text-sm text-left whitespace-nowrap">
                     <thead className="bg-gray-100 border-b">
                       <tr>
-                        <th className="px-4 py-3 w-10">No</th>
-                        <th className="px-4 py-3">Nama Depan</th>
-                        <th className="px-4 py-3">Nama Belakang</th>
-                        <th className="px-4 py-3">L/P</th>
-                        <th className="px-4 py-3">No. Paspor</th>
-                        <th className="px-4 py-3 text-center">Aksi</th>
+                        <th className="px-4 py-3 w-10">No</th><th className="px-4 py-3">Nama Depan</th><th className="px-4 py-3">Nama Belakang</th>
+                        <th className="px-4 py-3">L/P</th><th className="px-4 py-3">No. Paspor</th><th className="px-4 py-3 text-center">Aksi</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -926,28 +888,56 @@ export default function App() {
         </main>
       )}
 
-      {/* --- GOOGLE DRIVE MODE --- */}
+      {/* --- GOOGLE DRIVE FILE EXPLORER (DENGAN SISTEM FOLDER) --- */}
       {appMode === 'drive' && (
         <main className="max-w-6xl mx-auto p-4 sm:p-6">
-          <div className="bg-white rounded-2xl shadow-sm border p-6 text-center">
+          <div className="bg-white rounded-2xl shadow-sm border p-6 min-h-[50vh]">
             {!gdToken ? (
-              <div className="py-20">
+              <div className="py-20 text-center">
                 <Cloud className="w-16 h-16 text-indigo-200 mx-auto mb-4" />
                 <h3 className="text-lg font-bold mb-6">Penyimpanan Google Drive</h3>
-                <button onClick={handleGoogleLogin} className="bg-white border-2 border-indigo-600 text-indigo-600 px-8 py-3 rounded-xl font-bold flex items-center gap-2 mx-auto hover:bg-indigo-50 transition-all shadow-sm">
-                  <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" className="w-5" alt="G"/> HUBUNGKAN GOOGLE DRIVE
-                </button>
+                <button onClick={handleGoogleLogin} className="bg-white border-2 border-indigo-600 text-indigo-600 px-8 py-3 rounded-xl font-bold flex items-center gap-2 mx-auto hover:bg-indigo-50 transition-all shadow-sm"><img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" className="w-5" alt="G"/> HUBUNGKAN GOOGLE DRIVE</button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
-                {driveFiles.map(f => (
-                  <div key={f.id} className="group border border-gray-100 p-3 rounded-xl hover:shadow-md transition-all">
-                    <div className="aspect-square bg-gray-50 rounded-lg flex items-center justify-center mb-3 overflow-hidden">
-                      {f.thumbnailLink ? <img src={f.thumbnailLink} className="w-full h-full object-cover" alt={f.name}/> : <FileIcon className="text-gray-300 w-10 h-10" />}
+              <div>
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-2xl font-bold flex items-center gap-2"><Cloud className="text-indigo-600" /> Google Drive Explorer</h2>
+                </div>
+
+                {/* Breadcrumbs */}
+                <div className="flex items-center gap-2 mb-6 text-sm font-medium text-gray-600 bg-gray-50 p-3 rounded-xl overflow-x-auto">
+                  {driveBreadcrumbs.map((crumb, idx) => (
+                    <div key={crumb.id} className="flex items-center gap-2 whitespace-nowrap">
+                      <button onClick={() => navigateBreadcrumb(idx)} className={`hover:text-blue-600 ${idx === driveBreadcrumbs.length - 1 ? 'text-gray-900 font-bold' : ''}`}>{crumb.name}</button>
+                      {idx < driveBreadcrumbs.length - 1 && <ChevronRight className="w-4 h-4 text-gray-400" />}
                     </div>
-                    <p className="text-xs font-medium truncate text-gray-600" title={f.name}>{f.name}</p>
+                  ))}
+                </div>
+
+                {isDriveLoading ? (
+                  <div className="py-20 text-center text-gray-500"><Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-indigo-600" /> Memuat isi folder...</div>
+                ) : driveFiles.length === 0 ? (
+                  <div className="py-20 text-center text-gray-500"><FolderIcon className="w-12 h-12 mx-auto mb-2 text-gray-300" /> Folder ini kosong.</div>
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    {/* Render Folder */}
+                    {driveFiles.filter(f => f.mimeType === 'application/vnd.google-apps.folder').map(folder => (
+                      <div key={folder.id} onClick={() => handleFolderClick(folder)} className="group border border-gray-200 p-4 rounded-xl hover:shadow-md hover:border-indigo-500 cursor-pointer transition-all text-center bg-white">
+                        <FolderIcon className="w-12 h-12 text-indigo-500 mx-auto mb-3 group-hover:scale-105 transition-transform" fill="currentColor" />
+                        <p className="text-sm font-bold truncate text-gray-800" title={folder.name}>{folder.name}</p>
+                      </div>
+                    ))}
+                    {/* Render Files */}
+                    {driveFiles.filter(f => f.mimeType !== 'application/vnd.google-apps.folder').map(file => (
+                      <a href={file.webContentLink || '#'} target="_blank" rel="noreferrer" key={file.id} className="group border border-gray-100 p-3 rounded-xl hover:shadow-md transition-all text-center bg-gray-50 hover:bg-white block">
+                        <div className="aspect-square bg-white rounded-lg flex items-center justify-center mb-3 overflow-hidden border border-gray-100">
+                          {file.thumbnailLink ? <img src={file.thumbnailLink} className="w-full h-full object-cover group-hover:scale-105 transition-transform" alt={file.name}/> : <FileIcon className="text-gray-400 w-10 h-10" />}
+                        </div>
+                        <p className="text-xs font-medium truncate text-gray-600" title={file.name}>{file.name}</p>
+                      </a>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>
@@ -955,13 +945,8 @@ export default function App() {
       )}
 
       <style dangerouslySetInnerHTML={{__html: `
-        @media print { 
-          body { background-color: white !important; } 
-          @page { size: A4 portrait; margin: 0; } 
-          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-        }
-        .hide-scroll::-webkit-scrollbar { display: none; }
-        .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+        @media print { body { background-color: white !important; } @page { size: A4 portrait; margin: 0; } * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; } }
+        .hide-scroll::-webkit-scrollbar { display: none; } .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
       `}} />
     </div>
   );
