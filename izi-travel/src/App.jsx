@@ -5,10 +5,10 @@ import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken }
 import { getFirestore, collection, addDoc, serverTimestamp, doc, getDoc, setDoc } from 'firebase/firestore';
 
 // =====================================================================
-// KONFIGURASI KUNCI GOOGLE DRIVE (AI GEMINI SUDAH DIHAPUS)
+// KUNCI API PERMANEN (LANGSUNG TEMBAK FRONTEND SEPERTI VERSI PRATINJAU AWAL)
 // =====================================================================
+const PERMANEN_GEMINI_API = "AIzaSyBPnhXSFLj20OWRGOV7zEi15xo_-bPho7M"; 
 const PERMANEN_GD_CLIENT_ID = "737676719365-1e9ic5mf5a9vf6c661jrmspbd8tu4rto.apps.googleusercontent.com";
-const PERMANEN_GD_API_KEY = ""; 
 // =====================================================================
 
 let firebaseConfig = {};
@@ -29,14 +29,14 @@ export default function App() {
   const [appMode, setAppMode] = useState('persuratan'); 
   const [suratType, setSuratType] = useState('rekom'); 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isDriveSettingsOpen, setIsDriveSettingsOpen] = useState(false);
+  const [isApiSettingsOpen, setIsApiSettingsOpen] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [headerSettings, setHeaderSettings] = useState({
     logo: null, info: "IZI TRAVEL\nPPIU: 91202054619660001\nJl. Abdullah Daeng Sirua No.61, Kel. Masale\nKec. Panakkukang, Kota Makassar\nTelp: 0818-5244-24", signature: null, showSignature: false
   });
 
+  const [geminiApiKey, setGeminiApiKey] = useState(PERMANEN_GEMINI_API || localStorage.getItem('izi_gemini_api_key') || '');
   const [gdClientId, setGdClientId] = useState(PERMANEN_GD_CLIENT_ID || localStorage.getItem('izi_gd_client_id') || '');
-  const [gdApiKey, setGdApiKey] = useState(PERMANEN_GD_API_KEY || localStorage.getItem('izi_gd_api_key') || '');
   const [gdToken, setGdToken] = useState(null);
   const [googleScriptsLoaded, setGoogleScriptsLoaded] = useState(false);
 
@@ -153,7 +153,7 @@ export default function App() {
   // --- GOOGLE DRIVE LOGIC ---
   const handleGoogleLogin = () => {
     if (!googleScriptsLoaded) return alert("Sistem belum siap.");
-    if (!gdClientId) { setIsDriveSettingsOpen(true); return; }
+    if (!gdClientId) { setIsApiSettingsOpen(true); return; }
     try {
       const tokenClient = window.google.accounts.oauth2.initTokenClient({
         client_id: gdClientId,
@@ -168,10 +168,11 @@ export default function App() {
     } catch (error) { alert("Gagal login Google."); }
   };
 
-  const handleSaveDriveKeys = () => {
+  const handleSaveApiKeys = () => {
+    localStorage.setItem('izi_gemini_api_key', geminiApiKey);
     localStorage.setItem('izi_gd_client_id', gdClientId);
-    setIsDriveSettingsOpen(false);
-    alert("Konfigurasi disimpan!");
+    setIsApiSettingsOpen(false);
+    alert("Konfigurasi API berhasil disimpan!");
   };
 
   const fetchDriveFiles = async (token = gdToken) => {
@@ -204,127 +205,108 @@ export default function App() {
 
 
   // =====================================================================
-  // SISTEM OCR LOKAL PENGGANTI AI (TESSERACT.JS)
+  // SISTEM AI GEMINI (DIRECT FRONTEND - 100% BEKERJA SEPERTI PRATINJAU)
   // =====================================================================
-  const extractWithOCR = async (file, type = "ktp") => {
-    try {
-      console.log("Memulai proses OCR lokal...");
-      
-      // Memanggil Tesseract.js secara dinamis (tanpa perlu install NPM)
-      const TesseractModule = await import('https://esm.sh/tesseract.js@5');
-      const Tesseract = TesseractModule.default || TesseractModule;
+  const extractWithGemini = async (base64Data, mimeType, type) => {
+    const keyToUse = PERMANEN_GEMINI_API || geminiApiKey;
+    if (!keyToUse) throw new Error("Kunci API Gemini belum dimasukkan.");
 
-      // Jalankan OCR (Ini memakan waktu lebih lama dari AI karena diproses di memori laptop)
-      const result = await Tesseract.recognize(file, 'ind', {
-        logger: m => console.log(`Proses OCR: ${(m.progress * 100).toFixed(0)}%`)
-      });
-
-      const rawText = result.data.text;
-      console.log("Hasil Mentah OCR:\n", rawText);
-      const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-
-      if (type === "ktp") {
-        let data = { nik: '', nama: '', tempatLahir: '', tglLahir: '', alamat: '' };
-
-        // 1. Tangkap NIK (Cari 16 digit angka berturut-turut)
-        const nikMatch = rawText.match(/\b\d{16}\b/);
-        if (nikMatch) data.nik = nikMatch[0];
-
-        // 2. Tangkap Baris-baris berantakan (Parser Kasar)
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i].toUpperCase();
-          
-          // Tebak Nama
-          if (line.includes('NAMA') && !data.nama) {
-            data.nama = lines[i].replace(/.*NAMA[\s=:]*/i, '').replace(/[^a-zA-Z\s.,]/g, '').trim();
-            // Jika kosong, mungkin nama ada di baris bawahnya
-            if (!data.nama && i + 1 < lines.length) {
-              data.nama = lines[i+1].replace(/[^a-zA-Z\s.,]/g, '').trim();
-            }
-          }
-          
-          // Tebak Tempat Tgl Lahir
-          if ((line.includes('TEMPAT') || line.includes('LAHIR')) && !data.tempatLahir) {
-            const ttl = lines[i].replace(/.*LAHIR[\s=:]*/i, '').trim();
-            const parts = ttl.split(',');
-            if (parts.length > 1) {
-              data.tempatLahir = parts[0].replace(/[^a-zA-Z\s]/g, '').trim();
-              data.tglLahir = parts.slice(1).join(',').trim();
-            } else {
-              data.tempatLahir = ttl;
-            }
-          }
-          
-          // Tebak Alamat
-          if (line.includes('ALAMAT') && !data.alamat) {
-            data.alamat = lines[i].replace(/.*ALAMAT[\s=:]*/i, '').trim();
-          }
-        }
-        return data;
-
-      } else {
-        // --- PARSING PASPOR OCR ---
-        let data = { surname: '', givenName: '', gender: 'M', birthDate: '', passportNumber: '', issueDate: '', expiryDate: '', issuingCountry: 'INDONESIA' };
-        
-        // Cari kemungkinan Nomor Paspor (Biasanya 1 huruf + 7 angka)
-        const passMatch = rawText.match(/\b[A-Z0-9]{8,9}\b/);
-        if (passMatch) data.passportNumber = passMatch[0];
-
-        // Parser Paspor berbasis OCR sangat rawan, kita isi string kosong agar user edit manual
-        return data;
-      }
-
-    } catch (error) {
-      console.error(error);
-      throw new Error("Sistem OCR Gagal membaca gambar. Pastikan gambar sangat terang, fokus, dan tidak ada pantulan cahaya (glare).");
+    let prompt = `Ekstrak data KTP dari gambar ini. Kembalikan HASILNYA HANYA DALAM FORMAT JSON SEPERTI INI: {"nik": "nomor nik", "nama": "nama lengkap", "tempatLahir": "kota lahir", "tglLahir": "tanggal (contoh: 12 Januari 1990)", "alamat": "alamat lengkap"}. Jangan ada teks lain selain JSON.`;
+    if (type === "passport") {
+      prompt = `Ekstrak data Paspor dari gambar ini. Kembalikan HASILNYA HANYA DALAM FORMAT JSON SEPERTI INI: {"surname": "nama belakang", "givenName": "nama depan", "gender": "M atau F", "birthDate": "DD/MM/YYYY", "passportNumber": "nomor paspor", "issueDate": "DD/MM/YYYY", "expiryDate": "DD/MM/YYYY", "issuingCountry": "INDONESIA"}. Jangan ada teks lain selain JSON.`;
     }
+
+    // Menggunakan Array Rute API untuk memastikan 100% Tembus
+    const endpointsToTry = [
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${keyToUse}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${keyToUse}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${keyToUse}`
+    ];
+
+    let lastError = "";
+
+    for (const url of endpointsToTry) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType, data: base64Data } }] }]
+          })
+        });
+
+        const result = await response.json();
+        
+        if (result.error) {
+          lastError = result.error.message;
+          continue; // Jika gagal, coba link API berikutnya
+        }
+
+        const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!textResponse) continue;
+        
+        const cleanedJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(cleanedJson);
+
+      } catch (err) {
+        lastError = err.message;
+      }
+    }
+    
+    throw new Error(lastError || "Semua jalur API Google sedang sibuk/error.");
   };
 
-
   // --- GENERAL PROCESSING HELPER ---
-  const processExtractedData = async (file, mode) => {
-    if (mode === 'rekom') setIsProcessingRekom(true);
-    if (mode === 'cuti') setIsProcessingCutiKTP(true);
-    if (mode === 'passport') setIsProcessingPassport(true);
-
-    try {
-      // Menggunakan OCR sebagai ganti AI
-      const extracted = await extractWithOCR(file, mode === "passport" ? "passport" : "ktp");
-      
-      if (mode === 'rekom') {
-        setFormDataRekom({ ...extracted }); setViewRekom('form');
-        alert("Selesai diproses OCR. Perhatikan: Silakan cek dan perbaiki tulisan yang salah eja (typo).");
-      } else if (mode === 'cuti') {
-        setFormDataCuti(prev => ({ ...prev, nama: extracted.nama || '', alamat: extracted.alamat || '', idType: 'NIK', idNumber: extracted.nik || '' })); setViewCuti('form');
-        alert("Selesai diproses OCR. Perhatikan: Silakan cek dan perbaiki tulisan yang salah eja (typo).");
-      } else if (mode === 'passport') {
-        const newPax = { 
-          id: Date.now(), paxType: 'ADT', gender: extracted.gender || 'M', 
-          title: extracted.gender === 'M' ? 'MR' : 'MRS', 
-          lastName: extracted.surname || '', firstName: extracted.givenName || '', 
-          birthDate: extracted.birthDate || '', passportNumber: extracted.passportNumber || '', 
-          issueDate: extracted.issueDate || '', expiryDate: extracted.expiryDate || '', 
-          nationality: 'INDONESIA', issuingCountry: extracted.issuingCountry || 'INDONESIA', 
-          meal1: '', meal2: '', seating: '' 
-        };
-        setManifestData(prev => [...prev, newPax]);
-        alert("Paspor dibaca menggunakan OCR. Pastikan untuk mengedit kolom yang kosong atau salah eja secara manual di tabel.");
-      }
-    } catch(err) {
-      alert(`Pesan Sistem: ${err.message}`);
-      if (mode === 'rekom') setViewRekom('form');
-      if (mode === 'cuti') setViewCuti('form');
-    } finally {
-      setIsProcessingRekom(false); setIsProcessingCutiKTP(false); setIsProcessingPassport(false);
+  const handleExtractedData = (extracted, mode) => {
+    if (mode === 'rekom') {
+      setFormDataRekom({ ...extracted }); 
+      setViewRekom('form');
+    } else if (mode === 'cuti') {
+      setFormDataCuti(prev => ({ ...prev, nama: extracted.nama || '', alamat: extracted.alamat || '', idType: 'NIK', idNumber: extracted.nik || '' })); 
+      setViewCuti('form');
+    } else if (mode === 'passport') {
+      const newPax = { 
+        id: Date.now(), paxType: 'ADT', gender: extracted.gender || 'M', 
+        title: extracted.gender === 'M' ? 'MR' : 'MRS', 
+        lastName: extracted.surname || '', firstName: extracted.givenName || '', 
+        birthDate: extracted.birthDate || '', passportNumber: extracted.passportNumber || '', 
+        issueDate: extracted.issueDate || '', expiryDate: extracted.expiryDate || '', 
+        nationality: 'INDONESIA', issuingCountry: extracted.issuingCountry || 'INDONESIA', 
+        meal1: '', meal2: '', seating: '' 
+      };
+      setManifestData(prev => [...prev, newPax]);
     }
   };
 
   // --- HANDLER UPLOAD LOKAL ---
   const handleLocalUpload = async (e, mode) => {
-    const f = e.target.files[0]; if (!f) return;
-    if (gdToken) uploadToGoogleDrive(f); 
-    await processExtractedData(f, mode);
-    if (e.target) e.target.value = null;
+    const file = e.target.files[0]; if (!file) return;
+    if (gdToken) uploadToGoogleDrive(file); 
+
+    if (mode === 'rekom') setIsProcessingRekom(true);
+    if (mode === 'cuti') setIsProcessingCutiKTP(true);
+    if (mode === 'passport') setIsProcessingPassport(true);
+
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = async () => {
+        try {
+          const base64String = reader.result.split(',')[1];
+          const extracted = await extractWithGemini(base64String, file.type, mode === "passport" ? "passport" : "ktp");
+          handleExtractedData(extracted, mode);
+        } catch(err) {
+          alert(`Pesan Sistem AI: ${err.message}`);
+          if (mode === 'rekom') setViewRekom('form');
+          if (mode === 'cuti') setViewCuti('form');
+        } finally {
+          setIsProcessingRekom(false); setIsProcessingCutiKTP(false); setIsProcessingPassport(false);
+          if (e.target) e.target.value = null;
+        }
+      };
+    } catch (err) {
+      setIsProcessingRekom(false); setIsProcessingCutiKTP(false); setIsProcessingPassport(false);
+    }
   };
 
   // --- HANDLER UPLOAD DARI DRIVE ---
@@ -352,9 +334,22 @@ export default function App() {
       });
       if (!response.ok) throw new Error("Gagal mengunduh gambar dari Google Drive.");
       const blob = await response.blob();
-      const fileToProcess = new File([blob], driveFile.name, { type: driveFile.mimeType });
       
-      await processExtractedData(fileToProcess, mode);
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onload = async () => {
+        try {
+          const base64String = reader.result.split(',')[1];
+          const extracted = await extractWithGemini(base64String, driveFile.mimeType, mode === "passport" ? "passport" : "ktp");
+          handleExtractedData(extracted, mode);
+        } catch(err) {
+          alert(`Pesan Sistem AI: ${err.message}`);
+          if (mode === 'rekom') setViewRekom('form');
+          if (mode === 'cuti') setViewCuti('form');
+        } finally {
+          setIsProcessingRekom(false); setIsProcessingCutiKTP(false); setIsProcessingPassport(false);
+        }
+      };
     } catch(err) {
       alert(`Gagal mengambil dari Drive: ${err.message}`);
       setIsProcessingRekom(false); setIsProcessingCutiKTP(false); setIsProcessingPassport(false);
@@ -465,7 +460,7 @@ export default function App() {
             <button onClick={() => setAppMode('drive')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${appMode === 'drive' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-600 hover:bg-indigo-50'}`}><Cloud className="w-4 h-4"/> Google Drive</button>
           </div>
           <div className="flex gap-3 text-sm items-center whitespace-nowrap">
-            <button onClick={() => setIsDriveSettingsOpen(true)} className="text-indigo-700 hover:text-indigo-800 flex items-center gap-1 font-bold bg-indigo-100 px-4 py-2 rounded-lg border border-indigo-200 shadow-sm"><Key className="w-4 h-4"/> Drive API</button>
+            <button onClick={() => setIsApiSettingsOpen(true)} className="text-indigo-700 hover:text-indigo-800 flex items-center gap-1 font-bold bg-indigo-100 px-4 py-2 rounded-lg border border-indigo-200 shadow-sm"><Key className="w-4 h-4"/> API Keys</button>
             {appMode === 'persuratan' && <button onClick={() => setIsSettingsOpen(true)} className="text-gray-500 hover:text-blue-600 flex items-center gap-1 font-medium transition-colors"><Settings className="w-4 h-4"/> Kop Surat</button>}
           </div>
         </div>
@@ -510,20 +505,28 @@ export default function App() {
       )}
 
       {/* --- MODAL PENGATURAN API --- */}
-      {isDriveSettingsOpen && (
+      {isApiSettingsOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
-            <h2 className="text-xl font-bold mb-2 flex items-center gap-2"><Key className="w-6 h-6 text-indigo-600" /> Kunci Google Drive</h2>
-            <p className="text-xs text-gray-500 mb-4">Sistem AI telah digantikan oleh Local OCR. Anda hanya perlu mengatur API Drive di sini.</p>
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><Key className="w-6 h-6 text-indigo-600" /> Pengaturan API Keys</h2>
             <div className="space-y-4 mb-6">
+              
+              <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                <h3 className="text-sm font-bold text-blue-800 mb-2">1. Kunci AI Gemini (Akun A)</h3>
+                {PERMANEN_GEMINI_API ? <p className="text-sm text-green-700 font-medium flex items-center gap-2"><CheckCircle className="w-5 h-5"/> Aktif & Permanen</p> :
+                <input type="password" value={geminiApiKey} onChange={(e) => setGeminiApiKey(e.target.value)} placeholder="Paste kunci AIzaSy..." className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg" />}
+              </div>
+
               <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                <h3 className="text-sm font-bold text-gray-700 mb-2">Google Drive Client ID</h3>
+                <h3 className="text-sm font-bold text-gray-700 mb-2">2. Google Drive Client ID (Akun B)</h3>
                 {PERMANEN_GD_CLIENT_ID ? <p className="text-sm text-green-700 font-medium flex items-center gap-2"><CheckCircle className="w-5 h-5"/> Aktif & Permanen</p> :
                 <input type="text" value={gdClientId} onChange={(e) => setGdClientId(e.target.value)} placeholder="Client ID" className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg mb-2" />}
               </div>
+
             </div>
-            <div className="flex justify-end gap-2"><button onClick={() => setIsDriveSettingsOpen(false)} className="px-4 py-2 text-gray-600 rounded-lg text-sm">Tutup</button>
-            {(!PERMANEN_GD_CLIENT_ID) && <button onClick={handleSaveDriveKeys} className="bg-indigo-600 text-white px-5 py-2 rounded-xl font-medium text-sm">Simpan</button>}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setIsApiSettingsOpen(false)} className="px-4 py-2 text-gray-600 rounded-lg text-sm">Tutup</button>
+              {(!PERMANEN_GD_CLIENT_ID || !PERMANEN_GEMINI_API) && <button onClick={handleSaveApiKeys} className="bg-indigo-600 text-white px-5 py-2 rounded-xl font-medium text-sm">Simpan</button>}
             </div>
           </div>
         </div>
@@ -578,18 +581,18 @@ export default function App() {
           {suratType === 'rekom' && viewRekom === 'upload' && (
             <div className="max-w-lg mx-auto bg-white rounded-2xl shadow-sm border p-8 text-center">
               <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6"><Camera className="w-10 h-10" /></div>
-              <h2 className="text-2xl font-semibold mb-2">OCR KTP Jamaah</h2>
-              <p className="text-sm text-gray-500 mb-6">Pastikan foto KTP sangat terang dan tidak ada pantulan cahaya (glare).</p>
+              <h2 className="text-2xl font-semibold mb-2">Scan KTP AI</h2>
+              <p className="text-sm text-gray-500 mb-6">Pilih foto KTP yang terang untuk diproses otomatis oleh AI.</p>
               
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full mb-4">
                 <div className="relative group w-full sm:w-1/2">
                   <input type="file" accept="image/*" capture="environment" onChange={(e) => handleLocalUpload(e, 'rekom')} disabled={isProcessingRekom} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
                   <div className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold ${isProcessingRekom ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white shadow-md hover:bg-blue-700'}`}>
-                    {isProcessingRekom ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />} {isProcessingRekom ? 'MEMBACA OCR...' : 'VIA LOKAL'}
+                    {isProcessingRekom ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />} {isProcessingRekom ? 'AI MEMBACA...' : 'VIA LOKAL'}
                   </div>
                 </div>
                 <button onClick={() => openDriveModal('rekom')} disabled={isProcessingRekom} className="flex items-center justify-center gap-2 w-full sm:w-1/2 py-3 rounded-xl font-bold bg-white border-2 border-blue-600 text-blue-600 shadow-sm hover:bg-blue-50">
-                  {isProcessingRekom ? <Loader2 className="w-5 h-5 animate-spin" /> : <Cloud className="w-5 h-5" />} {isProcessingRekom ? 'MEMBACA OCR...' : 'VIA DRIVE'}
+                  {isProcessingRekom ? <Loader2 className="w-5 h-5 animate-spin" /> : <Cloud className="w-5 h-5" />} {isProcessingRekom ? 'AI MEMBACA...' : 'VIA DRIVE'}
                 </button>
               </div>
 
@@ -649,18 +652,18 @@ export default function App() {
           {suratType === 'cuti' && viewCuti === 'upload' && (
             <div className="max-w-lg mx-auto bg-white rounded-2xl shadow-sm border p-8 text-center print:hidden">
               <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6"><Camera className="w-10 h-10" /></div>
-              <h2 className="text-2xl font-semibold mb-2">OCR KTP Pegawai/Jamaah</h2>
-              <p className="text-sm text-gray-500 mb-6">Pastikan foto KTP sangat terang dan tidak ada pantulan cahaya (glare).</p>
+              <h2 className="text-2xl font-semibold mb-2">Scan KTP AI</h2>
+              <p className="text-sm text-gray-500 mb-6">Pilih foto KTP yang terang untuk diproses otomatis oleh AI.</p>
               
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full mb-4">
                 <div className="relative group w-full sm:w-1/2">
                   <input type="file" accept="image/*" capture="environment" onChange={(e) => handleLocalUpload(e, 'cuti')} disabled={isProcessingCutiKTP} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
                   <div className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold ${isProcessingCutiKTP ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white shadow-md hover:bg-blue-700'}`}>
-                    {isProcessingCutiKTP ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />} {isProcessingCutiKTP ? 'MEMBACA OCR...' : 'VIA LOKAL'}
+                    {isProcessingCutiKTP ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />} {isProcessingCutiKTP ? 'AI MEMBACA...' : 'VIA LOKAL'}
                   </div>
                 </div>
                 <button onClick={() => openDriveModal('cuti')} disabled={isProcessingCutiKTP} className="flex items-center justify-center gap-2 w-full sm:w-1/2 py-3 rounded-xl font-bold bg-white border-2 border-blue-600 text-blue-600 shadow-sm hover:bg-blue-50">
-                  {isProcessingCutiKTP ? <Loader2 className="w-5 h-5 animate-spin" /> : <Cloud className="w-5 h-5" />} {isProcessingCutiKTP ? 'MEMBACA OCR...' : 'VIA DRIVE'}
+                  {isProcessingCutiKTP ? <Loader2 className="w-5 h-5 animate-spin" /> : <Cloud className="w-5 h-5" />} {isProcessingCutiKTP ? 'AI MEMBACA...' : 'VIA DRIVE'}
                 </button>
               </div>
 
