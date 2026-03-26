@@ -153,7 +153,6 @@ export default function App() {
     if (!token) return;
     setIsDriveLoading(true);
     try {
-      // Query untuk memuat isi folder tertentu yang tidak di-trash
       const query = `'${folderId}' in parents and trashed=false`;
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,thumbnailLink,webContentLink,iconLink)&orderBy=folder,name`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -196,7 +195,15 @@ export default function App() {
     try {
       const el = document.getElementById(elementId);
       const html2pdf = (await import('https://esm.sh/html2pdf.js')).default;
-      const opt = { margin: 0, filename: `${filename}.pdf`, image: { type: 'jpeg', quality: 1 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
+      
+      // OPTION KHUSUS AGAR PDF SELALU A4 SEMPURNA
+      const opt = { 
+        margin: 0, 
+        filename: `${filename}.pdf`, 
+        image: { type: 'jpeg', quality: 1 }, 
+        html2canvas: { scale: 2, useCORS: true, windowWidth: 794 }, // 794px = A4 Width di 96 DPI
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
+      };
       
       const pdfBlob = await html2pdf().set(opt).from(el).outputPdf('blob');
       const file = new File([pdfBlob], `${filename}.pdf`, { type: 'application/pdf' });
@@ -217,7 +224,6 @@ export default function App() {
         let colName = historyType === 'rekom' ? 'jamaah_rekom_paspor' : historyType === 'cuti' ? 'jamaah_izin_cuti' : 'jamaah_izin_sekolah';
         const snapshot = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', colName));
         let data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        // Urutkan dari yang terbaru
         data.sort((a,b) => (b.tanggalDibuat?.toMillis() || 0) - (a.tanggalDibuat?.toMillis() || 0));
         setHistoryData(data);
       }
@@ -403,7 +409,6 @@ export default function App() {
       const file = new File([buffer], `MANIFEST_${Date.now()}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = window.URL.createObjectURL(file); const a = document.createElement('a'); a.href = url; a.download = file.name; a.click();
       
-      // Upload ke GDrive jika terhubung
       if (gdToken) {
         await uploadToGoogleDrive(file);
         alert("Excel Manifest otomatis disalin ke Google Drive (Folder saat ini).");
@@ -414,7 +419,7 @@ export default function App() {
   const KopSurat = () => (
     <div className="mb-8 print:mb-6">
       <div className="flex justify-between items-end pb-3">
-        <div className="flex flex-col pb-1 w-[300px]">
+        <div className="flex flex-col pb-1 w-[300px] print:w-[80mm]">
           {headerSettings.logo ? <img src={headerSettings.logo} alt="Logo" className="w-full object-contain" style={{ maxHeight: '90px', objectPosition: 'left bottom' }} /> : <div className="w-full h-[80px] border-2 border-dashed border-gray-300 flex items-center justify-center rounded-lg text-sm text-gray-400 print:border-none print:text-transparent">Logo Instansi</div>}
         </div>
         <div className="text-right text-[10.5pt] text-gray-800" style={{ fontFamily: 'Arial, sans-serif', lineHeight: '1.5' }}>
@@ -428,7 +433,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans selection:bg-blue-200 pb-20">
       {/* HEADER NAV */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-20 print:hidden shadow-sm overflow-x-auto">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-20 print:hidden shadow-sm">
         <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-blue-800 font-bold tracking-tight">
             <div className="bg-blue-600 text-white p-2 rounded-lg"><Users className="w-5 h-5"/></div> IZI System
@@ -439,9 +444,10 @@ export default function App() {
             <button onClick={() => setAppMode('riwayat')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${appMode === 'riwayat' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Archive className="w-4 h-4"/> Arsip Data</button>
             <button onClick={() => setAppMode('drive')} className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all ${appMode === 'drive' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-600 hover:bg-indigo-50'}`}><Cloud className="w-4 h-4"/> Google Drive</button>
           </div>
-          <div className="flex gap-3 text-sm items-center whitespace-nowrap">
+          {/* PERBAIKAN: Tombol Kop Surat sekarang selalu terlihat agar bisa diklik kapanpun */}
+          <div className="flex flex-wrap justify-center gap-3 text-sm items-center w-full md:w-auto">
+            <button onClick={() => setIsSettingsOpen(true)} className="text-gray-700 hover:text-blue-600 flex items-center gap-1 font-bold bg-white px-4 py-2 rounded-lg border border-gray-200 shadow-sm transition-colors"><Settings className="w-4 h-4"/> Kop Surat</button>
             <button onClick={() => setIsApiSettingsOpen(true)} className="text-indigo-700 hover:text-indigo-800 flex items-center gap-1 font-bold bg-indigo-100 px-4 py-2 rounded-lg border border-indigo-200 shadow-sm"><Key className="w-4 h-4"/> API Keys</button>
-            {appMode === 'persuratan' && <button onClick={() => setIsSettingsOpen(true)} className="text-gray-500 hover:text-blue-600 flex items-center gap-1 font-medium transition-colors"><Settings className="w-4 h-4"/> Kop Surat</button>}
           </div>
         </div>
       </header>
@@ -454,8 +460,6 @@ export default function App() {
               <h2 className="text-xl font-bold flex items-center gap-2"><Cloud className="w-6 h-6 text-blue-600" /> Pilih Gambar dari Drive</h2>
               <button onClick={() => setIsDriveModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-5 h-5"/></button>
             </div>
-            
-            {/* Breadcrumbs Drive Modal */}
             <div className="flex items-center gap-2 mb-4 text-sm font-medium text-gray-600 overflow-x-auto pb-2">
               {driveBreadcrumbs.map((crumb, idx) => (
                 <div key={crumb.id} className="flex items-center gap-2 whitespace-nowrap">
@@ -464,7 +468,6 @@ export default function App() {
                 </div>
               ))}
             </div>
-
             <div className="flex-1 overflow-y-auto min-h-[300px] p-2 hide-scroll">
               {isDriveLoading ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500 py-20"><Loader2 className="w-8 h-8 animate-spin mb-2 text-blue-600" /><p>Memuat isi Google Drive...</p></div>
@@ -587,6 +590,7 @@ export default function App() {
             </div>
           )}
 
+          {/* PERBAIKAN: Kontainer Print A4 Kaku untuk Rekom Paspor */}
           {suratType === 'rekom' && viewRekom === 'preview' && (
             <div>
               <div className="mb-6 flex flex-wrap justify-between bg-white p-4 rounded-xl shadow-sm border print:hidden gap-2">
@@ -596,25 +600,27 @@ export default function App() {
                   <button onClick={() => window.print()} className="bg-gray-900 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-lg"><Printer className="w-4 h-4" /> CETAK / SAVE LOKAL</button>
                 </div>
               </div>
-              <div id="print-rekom" className="bg-white mx-auto shadow-lg p-[20mm] w-full max-w-[210mm] min-h-[297mm] print:shadow-none print:p-0">
-                <KopSurat />
-                <div className="text-[11pt]" style={{ fontFamily: 'Times New Roman, serif' }}>
-                  <p className="mb-6">Nomor: {letterNumberRekom}<br/>Perihal: <b>SURAT REKOMENDASI PEMBUATAN PASPOR</b></p>
-                  <p className="mb-4">Kepada Yth,<br/><b>KEPALA KANTOR IMIGRASI KELAS I TPI MAKASSAR</b><br/>Di Tempat</p>
-                  <p className="mb-4 text-justify">Menerangkan bahwa jamaah umrah IZI Travel:</p>
-                  <table className="mb-6 ml-4"><tbody>
-                    <tr><td className="w-40">Nama</td><td>: <b>{formDataRekom.nama.toUpperCase()}</b></td></tr>
-                    <tr><td>Tempat/Tgl Lahir</td><td>: {formDataRekom.tempatLahir}, {formDataRekom.tglLahir}</td></tr>
-                    <tr><td>NIK</td><td>: {formDataRekom.nik}</td></tr>
-                    <tr className="align-top"><td>Alamat</td><td>: {formDataRekom.alamat}</td></tr>
-                  </tbody></table>
-                  <p className="mb-12">Surat ini digunakan untuk keperluan pembuatan paspor umrah.</p>
-                  <div className="flex justify-end text-center">
-                    <div className="w-64">
-                      <p>Makassar, {getCurrentDateFormatted()}<br/>Hormat Kami,</p>
-                      <div className="h-24 flex items-center justify-center my-1 relative">{headerSettings.showSignature && headerSettings.signature && <img src={headerSettings.signature} alt="Sig" className="h-28 object-contain absolute z-10" style={{ mixBlendMode: 'multiply' }} />}</div>
-                      <p className="font-bold underline decoration-1 underline-offset-4 mb-1 relative z-20">MUH. NASYWAN AKMAL</p>
-                      <p className="font-bold relative z-20">DIREKTUR IZI TRAVEL</p>
+              <div className="overflow-x-auto w-full flex justify-center pb-8 print:block print:pb-0">
+                <div id="print-rekom" className="bg-white shadow-lg p-[20mm] w-[210mm] min-h-[297mm] shrink-0 print:shadow-none print:m-0 print:p-[20mm]">
+                  <KopSurat />
+                  <div className="text-[11pt]" style={{ fontFamily: 'Times New Roman, serif' }}>
+                    <p className="mb-6">Nomor: {letterNumberRekom}<br/>Perihal: <b>SURAT REKOMENDASI PEMBUATAN PASPOR</b></p>
+                    <p className="mb-4">Kepada Yth,<br/><b>KEPALA KANTOR IMIGRASI KELAS I TPI MAKASSAR</b><br/>Di Tempat</p>
+                    <p className="mb-4 text-justify">Menerangkan bahwa jamaah umrah IZI Travel:</p>
+                    <table className="mb-6 ml-4"><tbody>
+                      <tr><td className="w-40">Nama</td><td>: <b>{formDataRekom.nama.toUpperCase()}</b></td></tr>
+                      <tr><td>Tempat/Tgl Lahir</td><td>: {formDataRekom.tempatLahir}, {formDataRekom.tglLahir}</td></tr>
+                      <tr><td>NIK</td><td>: {formDataRekom.nik}</td></tr>
+                      <tr className="align-top"><td>Alamat</td><td>: {formDataRekom.alamat}</td></tr>
+                    </tbody></table>
+                    <p className="mb-12">Surat ini digunakan untuk keperluan pembuatan paspor umrah.</p>
+                    <div className="flex justify-end text-center">
+                      <div className="w-64">
+                        <p>Makassar, {getCurrentDateFormatted()}<br/>Hormat Kami,</p>
+                        <div className="h-24 flex items-center justify-center my-1 relative">{headerSettings.showSignature && headerSettings.signature && <img src={headerSettings.signature} alt="Sig" className="h-28 object-contain absolute z-10" style={{ mixBlendMode: 'multiply' }} />}</div>
+                        <p className="font-bold underline decoration-1 underline-offset-4 mb-1 relative z-20">MUH. NASYWAN AKMAL</p>
+                        <p className="font-bold relative z-20">DIREKTUR IZI TRAVEL</p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -672,6 +678,7 @@ export default function App() {
             </div>
           )}
 
+          {/* PERBAIKAN: Kontainer Print A4 Kaku untuk Cuti */}
           {suratType === 'cuti' && viewCuti === 'preview' && (
              <div>
               <div className="mb-6 flex flex-wrap justify-between bg-white p-4 rounded-xl shadow-sm border print:hidden gap-2">
@@ -681,31 +688,33 @@ export default function App() {
                   <button onClick={() => window.print()} className="bg-gray-900 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-lg"><Printer className="w-4 h-4" /> CETAK / SAVE LOKAL</button>
                 </div>
               </div>
-              <div id="print-cuti" className="bg-white mx-auto shadow-lg p-[20mm] w-full max-w-[210mm] min-h-[297mm] print:shadow-none print:p-0">
-                <KopSurat />
-                <div className="text-[11pt]" style={{ fontFamily: 'Times New Roman, serif', lineHeight: '1.5' }}>
-                  <table className="mb-6"><tbody>
-                    <tr><td className="w-24 pb-1">Nomor</td><td className="w-4 pb-1">:</td><td className="pb-1">{letterNumberCuti}</td></tr>
-                    <tr><td className="pb-1">Lampiran</td><td className="pb-1">:</td><td className="pb-1">-</td></tr>
-                    <tr><td className="pb-1 align-top">Perihal</td><td className="pb-1 align-top">:</td><td className="pb-1 font-bold">SURAT PERMOHONAN IZIN CUTI</td></tr>
-                  </tbody></table>
-                  <div className="mb-6"><p>Kepada Yth,</p>{formDataCuti.kepadaYth.split('\n').map((line, i) => <p key={i} className="font-bold">{line}</p>)}<p>Di -</p><p className="ml-4">Tempat</p></div>
-                  <p className="mb-4 text-justify">Dengan ini kami sampaikan permohonan izin cuti bagi jamaah umrah kami yang akan berangkat pada tanggal {formDataCuti.tglBerangkat} – {formDataCuti.tglPulang} Tahun {formDataCuti.tahunHM}, atas nama jamaah di bawah ini:</p>
-                  <table className="mb-6 ml-4"><tbody>
-                    <tr><td className="w-40 pb-2">Nama</td><td className="w-4 pb-2">:</td><td className="pb-2 font-bold uppercase">{formDataCuti.nama}</td></tr>
-                    <tr><td className="pb-2 align-top">Alamat</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataCuti.alamat}</td></tr>
-                    <tr><td className="pb-2">{formDataCuti.idType}</td><td className="pb-2">:</td><td className="pb-2">{formDataCuti.idNumber}</td></tr>
-                    <tr><td className="pb-2 align-top">Instansi</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataCuti.instansi}</td></tr>
-                    <tr><td className="pb-2 align-top">Golongan/Pangkat</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataCuti.golongan || "-"}</td></tr>
-                    <tr><td className="pb-2 align-top">Jabatan</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataCuti.jabatan}</td></tr>
-                  </tbody></table>
-                  <p className="mb-12 text-justify">Demikian surat permohonan ini kami buat untuk dipergunakan sebagaimana mestinya, atas perhatian dan kerjasama yang baik kami ucapkan terima kasih.</p>
-                  <div className="flex justify-end text-center">
-                    <div className="w-64">
-                      <p>Makassar, {getCurrentDateFormatted()}<br/>Hormat Kami,</p>
-                      <div className="h-24 flex items-center justify-center my-1 relative">{headerSettings.showSignature && headerSettings.signature && <img src={headerSettings.signature} alt="Sig" className="h-28 object-contain absolute z-10" style={{ mixBlendMode: 'multiply' }} />}</div>
-                      <p className="font-bold underline decoration-1 underline-offset-4 mb-1 relative z-20">MUH. NASYWAN AKMAL</p>
-                      <p className="font-bold relative z-20">DIREKTUR IZI TRAVEL</p>
+              <div className="overflow-x-auto w-full flex justify-center pb-8 print:block print:pb-0">
+                <div id="print-cuti" className="bg-white shadow-lg p-[20mm] w-[210mm] min-h-[297mm] shrink-0 print:shadow-none print:m-0 print:p-[20mm]">
+                  <KopSurat />
+                  <div className="text-[11pt]" style={{ fontFamily: 'Times New Roman, serif', lineHeight: '1.5' }}>
+                    <table className="mb-6"><tbody>
+                      <tr><td className="w-24 pb-1">Nomor</td><td className="w-4 pb-1">:</td><td className="pb-1">{letterNumberCuti}</td></tr>
+                      <tr><td className="pb-1">Lampiran</td><td className="pb-1">:</td><td className="pb-1">-</td></tr>
+                      <tr><td className="pb-1 align-top">Perihal</td><td className="pb-1 align-top">:</td><td className="pb-1 font-bold">SURAT PERMOHONAN IZIN CUTI</td></tr>
+                    </tbody></table>
+                    <div className="mb-6"><p>Kepada Yth,</p>{formDataCuti.kepadaYth.split('\n').map((line, i) => <p key={i} className="font-bold">{line}</p>)}<p>Di -</p><p className="ml-4">Tempat</p></div>
+                    <p className="mb-4 text-justify">Dengan ini kami sampaikan permohonan izin cuti bagi jamaah umrah kami yang akan berangkat pada tanggal {formDataCuti.tglBerangkat} – {formDataCuti.tglPulang} Tahun {formDataCuti.tahunHM}, atas nama jamaah di bawah ini:</p>
+                    <table className="mb-6 ml-4"><tbody>
+                      <tr><td className="w-40 pb-2">Nama</td><td className="w-4 pb-2">:</td><td className="pb-2 font-bold uppercase">{formDataCuti.nama}</td></tr>
+                      <tr><td className="pb-2 align-top">Alamat</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataCuti.alamat}</td></tr>
+                      <tr><td className="pb-2">{formDataCuti.idType}</td><td className="pb-2">:</td><td className="pb-2">{formDataCuti.idNumber}</td></tr>
+                      <tr><td className="pb-2 align-top">Instansi</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataCuti.instansi}</td></tr>
+                      <tr><td className="pb-2 align-top">Golongan/Pangkat</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataCuti.golongan || "-"}</td></tr>
+                      <tr><td className="pb-2 align-top">Jabatan</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataCuti.jabatan}</td></tr>
+                    </tbody></table>
+                    <p className="mb-12 text-justify">Demikian surat permohonan ini kami buat untuk dipergunakan sebagaimana mestinya, atas perhatian dan kerjasama yang baik kami ucapkan terima kasih.</p>
+                    <div className="flex justify-end text-center">
+                      <div className="w-64">
+                        <p>Makassar, {getCurrentDateFormatted()}<br/>Hormat Kami,</p>
+                        <div className="h-24 flex items-center justify-center my-1 relative">{headerSettings.showSignature && headerSettings.signature && <img src={headerSettings.signature} alt="Sig" className="h-28 object-contain absolute z-10" style={{ mixBlendMode: 'multiply' }} />}</div>
+                        <p className="font-bold underline decoration-1 underline-offset-4 mb-1 relative z-20">MUH. NASYWAN AKMAL</p>
+                        <p className="font-bold relative z-20">DIREKTUR IZI TRAVEL</p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -745,6 +754,7 @@ export default function App() {
             </div>
           )}
 
+          {/* PERBAIKAN: Kontainer Print A4 Kaku untuk Sekolah */}
           {suratType === 'sekolah' && viewSekolah === 'preview' && (
              <div>
               <div className="mb-6 flex flex-wrap justify-between bg-white p-4 rounded-xl shadow-sm border print:hidden gap-2">
@@ -754,32 +764,34 @@ export default function App() {
                   <button onClick={() => window.print()} className="bg-gray-900 text-white px-5 py-2 rounded-lg flex items-center gap-2 shadow-lg"><Printer className="w-4 h-4" /> CETAK / SAVE LOKAL</button>
                 </div>
               </div>
-              <div id="print-sekolah" className="bg-white mx-auto shadow-lg p-[20mm] w-full max-w-[210mm] min-h-[297mm] print:shadow-none print:p-0">
-                <KopSurat />
-                <div className="text-[11pt]" style={{ fontFamily: 'Times New Roman, serif', lineHeight: '1.5' }}>
-                  <table className="mb-6"><tbody>
-                    <tr><td className="w-24 pb-1">Nomor</td><td className="w-4 pb-1">:</td><td className="pb-1">{letterNumberSekolah}</td></tr>
-                    <tr><td className="pb-1">Lampiran</td><td className="pb-1">:</td><td className="pb-1">-</td></tr>
-                    <tr><td className="pb-1 align-top">Perihal</td><td className="pb-1 align-top">:</td><td className="pb-1 font-bold">SURAT IZIN MELAKSANAKAN UMRAH</td></tr>
-                  </tbody></table>
-                  <div className="mb-6">
-                    <p>Kepada Yth,</p>{formDataSekolah.kepadaYth.split('\n').map((line, i) => <p key={i} className="font-bold">{line}</p>)}<p>Di-</p><p className="ml-4">Tempat</p>
-                  </div>
-                  <p className="mb-4 text-justify">
-                    Dengan ini memohon izin kepada pihak {formDataSekolah.tingkat === 'Kampus' ? 'perguruan tinggi' : 'sekolah'} untuk memberikan izin tidak mengikuti {formDataSekolah.tingkat === 'Kampus' ? 'perkuliahan' : 'kegiatan belajar mengajar'} kepada jamaah umrah kami yang akan melakukan ibadah umrah pada tanggal {formDataSekolah.tglBerangkat} - {formDataSekolah.tglPulang}, atas nama jamaah di bawah ini:
-                  </p>
-                  <table className="mb-6 ml-4"><tbody>
-                    <tr><td className="w-40 pb-2">Nama</td><td className="w-4 pb-2">:</td><td className="pb-2 font-bold uppercase">{formDataSekolah.nama}</td></tr>
-                    <tr><td className="pb-2">{formDataSekolah.idType}</td><td className="pb-2">:</td><td className="pb-2">{formDataSekolah.idNumber}</td></tr>
-                    <tr><td className="pb-2 align-top">{formDataSekolah.tingkat === 'Kampus' ? 'Jurusan' : 'Kelas'}</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataSekolah.jurusan}</td></tr>
-                  </tbody></table>
-                  <p className="mb-12 text-justify">Demikian surat permohonan ini kami buat untuk dipergunakan sebagaimana mestinya, atas perhatian dan kerjasama yang baik kami ucapkan terima kasih.</p>
-                  <div className="flex justify-end text-center">
-                    <div className="w-64">
-                      <p>Makassar, {getCurrentDateFormatted()}<br/>Hormat Kami,</p>
-                      <div className="h-24 flex items-center justify-center my-1 relative">{headerSettings.showSignature && headerSettings.signature && <img src={headerSettings.signature} alt="Sig" className="h-28 object-contain absolute z-10" style={{ mixBlendMode: 'multiply' }} />}</div>
-                      <p className="font-bold underline decoration-1 underline-offset-4 mb-1 relative z-20">MUH. NASYWAN AKMAL</p>
-                      <p className="font-bold relative z-20">DIREKTUR IZI TRAVEL</p>
+              <div className="overflow-x-auto w-full flex justify-center pb-8 print:block print:pb-0">
+                <div id="print-sekolah" className="bg-white shadow-lg p-[20mm] w-[210mm] min-h-[297mm] shrink-0 print:shadow-none print:m-0 print:p-[20mm]">
+                  <KopSurat />
+                  <div className="text-[11pt]" style={{ fontFamily: 'Times New Roman, serif', lineHeight: '1.5' }}>
+                    <table className="mb-6"><tbody>
+                      <tr><td className="w-24 pb-1">Nomor</td><td className="w-4 pb-1">:</td><td className="pb-1">{letterNumberSekolah}</td></tr>
+                      <tr><td className="pb-1">Lampiran</td><td className="pb-1">:</td><td className="pb-1">-</td></tr>
+                      <tr><td className="pb-1 align-top">Perihal</td><td className="pb-1 align-top">:</td><td className="pb-1 font-bold">SURAT IZIN MELAKSANAKAN UMRAH</td></tr>
+                    </tbody></table>
+                    <div className="mb-6">
+                      <p>Kepada Yth,</p>{formDataSekolah.kepadaYth.split('\n').map((line, i) => <p key={i} className="font-bold">{line}</p>)}<p>Di-</p><p className="ml-4">Tempat</p>
+                    </div>
+                    <p className="mb-4 text-justify">
+                      Dengan ini memohon izin kepada pihak {formDataSekolah.tingkat === 'Kampus' ? 'perguruan tinggi' : 'sekolah'} untuk memberikan izin tidak mengikuti {formDataSekolah.tingkat === 'Kampus' ? 'perkuliahan' : 'kegiatan belajar mengajar'} kepada jamaah umrah kami yang akan melakukan ibadah umrah pada tanggal {formDataSekolah.tglBerangkat} - {formDataSekolah.tglPulang}, atas nama jamaah di bawah ini:
+                    </p>
+                    <table className="mb-6 ml-4"><tbody>
+                      <tr><td className="w-40 pb-2">Nama</td><td className="w-4 pb-2">:</td><td className="pb-2 font-bold uppercase">{formDataSekolah.nama}</td></tr>
+                      <tr><td className="pb-2">{formDataSekolah.idType}</td><td className="pb-2">:</td><td className="pb-2">{formDataSekolah.idNumber}</td></tr>
+                      <tr><td className="pb-2 align-top">{formDataSekolah.tingkat === 'Kampus' ? 'Jurusan' : 'Kelas'}</td><td className="pb-2 align-top">:</td><td className="pb-2">{formDataSekolah.jurusan}</td></tr>
+                    </tbody></table>
+                    <p className="mb-12 text-justify">Demikian surat permohonan ini kami buat untuk dipergunakan sebagaimana mestinya, atas perhatian dan kerjasama yang baik kami ucapkan terima kasih.</p>
+                    <div className="flex justify-end text-center">
+                      <div className="w-64">
+                        <p>Makassar, {getCurrentDateFormatted()}<br/>Hormat Kami,</p>
+                        <div className="h-24 flex items-center justify-center my-1 relative">{headerSettings.showSignature && headerSettings.signature && <img src={headerSettings.signature} alt="Sig" className="h-28 object-contain absolute z-10" style={{ mixBlendMode: 'multiply' }} />}</div>
+                        <p className="font-bold underline decoration-1 underline-offset-4 mb-1 relative z-20">MUH. NASYWAN AKMAL</p>
+                        <p className="font-bold relative z-20">DIREKTUR IZI TRAVEL</p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -791,9 +803,9 @@ export default function App() {
 
       {/* --- MODE MANIFEST --- */}
       {appMode === 'manifest' && (
-        <main className={`mx-auto p-4 sm:p-6 pb-20 ${viewManifest === 'attendance' ? 'max-w-4xl print:p-0' : 'max-w-6xl'}`}>
+        <main className={`mx-auto p-4 sm:p-6 pb-20 ${viewManifest === 'attendance' ? 'w-full print:p-0' : 'max-w-6xl'}`}>
           {viewManifest === 'attendance' ? (
-            <div className="mt-4">
+            <div className="max-w-4xl mx-auto mt-4">
               <div className="mb-6 flex justify-between bg-white p-4 rounded-xl shadow-sm border print:hidden">
                 <button onClick={() => setViewManifest('table')} className="flex items-center gap-2 text-gray-600 font-medium hover:text-gray-900"><ArrowLeft className="w-4 h-4"/> Kembali ke Tabel</button>
                 <div className="flex gap-2">
@@ -801,39 +813,42 @@ export default function App() {
                   <button onClick={() => window.print()} className="bg-gray-900 text-white px-6 py-2 rounded-lg flex items-center gap-2 shadow-lg"><Printer className="w-4 h-4" /> CETAK / LOKAL</button>
                 </div>
               </div>
-
-              <div id="print-absen" className="bg-white mx-auto shadow-lg p-[20mm] w-full max-w-[210mm] min-h-[297mm] print:shadow-none print:p-0">
-                <KopSurat />
-                <div className="text-[11pt]" style={{ fontFamily: 'Times New Roman, serif' }}>
-                  <p className="font-bold text-center text-lg mb-8 underline uppercase">Daftar Hadir Jamaah Umroh</p>
-                  <table className="w-full border-collapse border border-black text-[10pt] mb-12">
-                    <thead>
-                      <tr className="bg-gray-100">
-                        <th className="border border-black py-2 w-10 text-center">No</th>
-                        <th className="border border-black py-2 px-3 text-left">Nama Jamaah</th>
-                        <th className="border border-black py-2 w-12 text-center">L/P</th>
-                        <th className="border border-black py-2 px-2 text-left">No. Paspor</th>
-                        <th className="border border-black py-2 w-48 text-center" colSpan="2">Tanda Tangan</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {manifestData.length === 0 ? <tr><td colSpan="5" className="border border-black py-10 text-center italic text-gray-400">Belum ada data jamaah</td></tr> : manifestData.map((p, i) => (
-                        <tr key={p.id}>
-                          <td className="border border-black py-3 text-center">{i+1}</td>
-                          <td className="border border-black px-3 font-medium uppercase">{p.firstName} {p.lastName}</td>
-                          <td className="border border-black text-center">{p.gender}</td>
-                          <td className="border border-black px-2 uppercase font-mono">{p.passportNumber}</td>
-                          <td className="border border-black p-1 align-top w-24 relative border-r-0">{i % 2 === 0 ? <span className="text-[8pt] absolute top-1 left-1">{i+1}.</span> : ''}</td>
-                          <td className="border border-black p-1 align-top w-24 relative border-l-0">{i % 2 !== 0 ? <span className="text-[8pt] absolute top-1 left-1">{i+1}.</span> : ''}</td>
+              
+              {/* PERBAIKAN: Kontainer Print A4 Kaku untuk Absen */}
+              <div className="overflow-x-auto w-full flex justify-center pb-8 print:block print:pb-0">
+                <div id="print-absen" className="bg-white shadow-lg p-[20mm] w-[210mm] min-h-[297mm] shrink-0 print:shadow-none print:m-0 print:p-[20mm]">
+                  <KopSurat />
+                  <div className="text-[11pt]" style={{ fontFamily: 'Times New Roman, serif' }}>
+                    <p className="font-bold text-center text-lg mb-8 underline uppercase">Daftar Hadir Jamaah Umroh</p>
+                    <table className="w-full border-collapse border border-black text-[10pt] mb-12">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className="border border-black py-2 w-10 text-center">No</th>
+                          <th className="border border-black py-2 px-3 text-left">Nama Jamaah</th>
+                          <th className="border border-black py-2 w-12 text-center">L/P</th>
+                          <th className="border border-black py-2 px-2 text-left">No. Paspor</th>
+                          <th className="border border-black py-2 w-48 text-center" colSpan="2">Tanda Tangan</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <div className="flex justify-end text-center">
-                    <div className="w-64">
-                      <p>Makassar, {getCurrentDateFormatted()}</p>
-                      <div className="h-24 flex items-center justify-center my-1 relative">{headerSettings.showSignature && headerSettings.signature && <img src={headerSettings.signature} alt="Sig" className="h-28 object-contain absolute z-10" style={{ mixBlendMode: 'multiply' }} />}</div>
-                      <p><b>MUH. NASYWAN AKMAL</b><br/>DIREKTUR IZI TRAVEL</p>
+                      </thead>
+                      <tbody>
+                        {manifestData.length === 0 ? <tr><td colSpan="5" className="border border-black py-10 text-center italic text-gray-400">Belum ada data jamaah</td></tr> : manifestData.map((p, i) => (
+                          <tr key={p.id}>
+                            <td className="border border-black py-3 text-center">{i+1}</td>
+                            <td className="border border-black px-3 font-medium uppercase">{p.firstName} {p.lastName}</td>
+                            <td className="border border-black text-center">{p.gender}</td>
+                            <td className="border border-black px-2 uppercase font-mono">{p.passportNumber}</td>
+                            <td className="border border-black p-1 align-top w-24 relative border-r-0">{i % 2 === 0 ? <span className="text-[8pt] absolute top-1 left-1">{i+1}.</span> : ''}</td>
+                            <td className="border border-black p-1 align-top w-24 relative border-l-0">{i % 2 !== 0 ? <span className="text-[8pt] absolute top-1 left-1">{i+1}.</span> : ''}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="flex justify-end text-center">
+                      <div className="w-64">
+                        <p>Makassar, {getCurrentDateFormatted()}</p>
+                        <div className="h-24 flex items-center justify-center my-1 relative">{headerSettings.showSignature && headerSettings.signature && <img src={headerSettings.signature} alt="Sig" className="h-28 object-contain absolute z-10" style={{ mixBlendMode: 'multiply' }} />}</div>
+                        <p><b>MUH. NASYWAN AKMAL</b><br/>DIREKTUR IZI TRAVEL</p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -944,8 +959,14 @@ export default function App() {
         </main>
       )}
 
+      {/* PERBAIKAN CSS: Memastikan kertas A4 kaku saat diprint */}
       <style dangerouslySetInnerHTML={{__html: `
-        @media print { body { background-color: white !important; } @page { size: A4 portrait; margin: 0; } * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; } }
+        @media print { 
+          body { background-color: white !important; } 
+          @page { size: A4 portrait; margin: 0; } 
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+          main { display: block !important; padding: 0 !important; margin: 0 !important; }
+        }
         .hide-scroll::-webkit-scrollbar { display: none; } .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
       `}} />
     </div>
